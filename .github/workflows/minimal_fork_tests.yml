@@ -29,5 +29,5 @@ jobs:
         run: |
           uv venv .venv
           echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
-          uv sync --dev -p .venv --extra dev
-          uv run -p .venv pytest tests/minimal -vv
+          uv sync --dev --python .venv/bin/python --extra dev
+          uv run --python .venv/bin/python --module pytest tests/minimal -vv

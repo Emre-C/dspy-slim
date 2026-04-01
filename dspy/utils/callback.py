@@ -5,11 +5,21 @@ import uuid
 from contextvars import ContextVar
 from typing import Any, Callable
 
-import dspy
+from dspy.dsp.utils.settings import settings
 
 ACTIVE_CALL_ID = ContextVar("active_call_id", default=None)
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1)
+def _get_callback_dispatch_types():
+    from dspy.adapters.base import Adapter
+    from dspy.adapters.types.tool import Tool
+    from dspy.clients.base_lm import BaseLM
+    from dspy.evaluate.evaluate import Evaluate
+
+    return Adapter, BaseLM, Evaluate, Tool
 
 
 class BaseCallback:
@@ -285,7 +295,7 @@ def with_callbacks(fn):
 
     def _get_active_callbacks(instance):
         """Get combined global and instance-level callbacks."""
-        return dspy.settings.get("callbacks", []) + getattr(instance, "callbacks", [])
+        return settings.get("callbacks", []) + getattr(instance, "callbacks", [])
 
     if inspect.iscoroutinefunction(fn):
 
@@ -350,12 +360,14 @@ def with_callbacks(fn):
 
 def _get_on_start_handler(callback: BaseCallback, instance: Any, fn: Callable) -> Callable:
     """Selects the appropriate on_start handler of the callback based on the instance and function name."""
-    if isinstance(instance, dspy.BaseLM):
+    Adapter, BaseLM, Evaluate, Tool = _get_callback_dispatch_types()
+
+    if isinstance(instance, BaseLM):
         return callback.on_lm_start
-    elif isinstance(instance, dspy.Evaluate):
+    elif isinstance(instance, Evaluate):
         return callback.on_evaluate_start
 
-    if isinstance(instance, dspy.Adapter):
+    if isinstance(instance, Adapter):
         if fn.__name__ == "format":
             return callback.on_adapter_format_start
         elif fn.__name__ == "parse":
@@ -363,7 +375,7 @@ def _get_on_start_handler(callback: BaseCallback, instance: Any, fn: Callable) -
         else:
             raise ValueError(f"Unsupported adapter method for using callback: {fn.__name__}.")
 
-    if isinstance(instance, dspy.Tool):
+    if isinstance(instance, Tool):
         return callback.on_tool_start
 
     # We treat everything else as a module.
@@ -372,12 +384,14 @@ def _get_on_start_handler(callback: BaseCallback, instance: Any, fn: Callable) -
 
 def _get_on_end_handler(callback: BaseCallback, instance: Any, fn: Callable) -> Callable:
     """Selects the appropriate on_end handler of the callback based on the instance and function name."""
-    if isinstance(instance, dspy.BaseLM):
+    Adapter, BaseLM, Evaluate, Tool = _get_callback_dispatch_types()
+
+    if isinstance(instance, BaseLM):
         return callback.on_lm_end
-    elif isinstance(instance, dspy.Evaluate):
+    elif isinstance(instance, Evaluate):
         return callback.on_evaluate_end
 
-    if isinstance(instance, (dspy.Adapter)):
+    if isinstance(instance, Adapter):
         if fn.__name__ == "format":
             return callback.on_adapter_format_end
         elif fn.__name__ == "parse":
@@ -385,7 +399,7 @@ def _get_on_end_handler(callback: BaseCallback, instance: Any, fn: Callable) -> 
         else:
             raise ValueError(f"Unsupported adapter method for using callback: {fn.__name__}.")
 
-    if isinstance(instance, dspy.Tool):
+    if isinstance(instance, Tool):
         return callback.on_tool_end
 
     # We treat everything else as a module.

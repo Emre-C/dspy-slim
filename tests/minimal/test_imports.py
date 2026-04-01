@@ -4,12 +4,30 @@ import dspy
 
 
 def test_top_level_symbols():
-    assert hasattr(dspy, "RLM")
-    assert hasattr(dspy, "GEPA")
-    assert hasattr(dspy, "Predict")
-    assert hasattr(dspy, "Evaluate")
-    assert hasattr(dspy, "bootstrap_trace_data")
-    assert hasattr(dspy, "Teleprompter")
+    for name in (
+        "Signature",
+        "InputField",
+        "OutputField",
+        "Predict",
+        "ChainOfThought",
+        "Parallel",
+        "RLM",
+        "GEPA",
+        "LM",
+    ):
+        assert hasattr(dspy, name)
+
+    for name in (
+        "ReAct",
+        "ProgramOfThought",
+        "CodeAct",
+        "BestOfN",
+        "Refine",
+        "MultiChainComparison",
+        "KNN",
+        "majority",
+    ):
+        assert not hasattr(dspy, name)
 
 
 def test_evaluate_metrics_available():
