@@ -1,12 +1,12 @@
 import copy
 import inspect
 import logging
+import pickle
 import threading
 from functools import wraps
 from hashlib import sha256
 from typing import Any
 
-import cloudpickle
 import orjson
 import pydantic
 from cachetools import LRUCache
@@ -172,7 +172,7 @@ class Cache:
 
         with self._lock:
             with open(filepath, "wb") as f:
-                cloudpickle.dump(self.memory_cache, f)
+                pickle.dump(self.memory_cache, f)
 
     def load_memory_cache(self, filepath: str, allow_pickle: bool = False) -> None:
         if not allow_pickle:
@@ -184,7 +184,7 @@ class Cache:
 
         with self._lock:
             with open(filepath, "rb") as f:
-                self.memory_cache = cloudpickle.load(f)
+                self.memory_cache = pickle.load(f)
 
 
 def request_cache(

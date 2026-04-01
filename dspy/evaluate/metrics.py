@@ -256,20 +256,6 @@ def precision_score(prediction, ground_truth):
     return precision
 
 
-def _passage_match(passages: list[str], answers: list[str]) -> bool:
-    """Return True if any passage contains any answer (normalized & DPR-normalized)."""
-    from dspy.dsp.utils import DPR_normalize, has_answer
-
-    def passage_has_answers(passage: str, answers: list[str]) -> bool:
-        """Return True if the passage contains any of the answers."""
-        return has_answer(
-            tokenized_answers=[DPR_normalize(normalize_text(ans)) for ans in answers],
-            text=normalize_text(passage),
-        )
-
-    return any(passage_has_answers(psg, answers) for psg in passages)
-
-
 def _answer_match(prediction, answers, frac=1.0):
     """Return True if prediction matches any answer.
 
@@ -313,36 +299,5 @@ def answer_exact_match(example, pred, trace=None, frac=1.0):
         return _answer_match(pred.answer, [example.answer], frac=frac)
     elif isinstance(example.answer, list):
         return _answer_match(pred.answer, example.answer, frac=frac)
-
-    raise ValueError(f"Invalid answer type: {type(example.answer)}")
-
-
-def answer_passage_match(example, pred, trace=None):
-    """Return True if any passage in `pred.context` contains the answer(s).
-
-    Strings are normalized (and passages also use DPR normalization internally).
-
-    Args:
-        example: `dspy.Example` object with field `answer` (str or list[str]).
-        pred: `dspy.Prediction` object with field `context` (list[str]) containing passages.
-        trace: Unused; reserved for compatibility.
-
-    Returns:
-        bool: True if any passage contains any reference answer; otherwise False.
-
-    Examples:
-        ```python
-        import dspy
-
-        example = dspy.Example(answer="Eiffel Tower")
-        pred = dspy.Prediction(context=["The Eiffel Tower is in Paris.", "..."])
-
-        answer_passage_match(example, pred)  # True
-        ```
-    """
-    if isinstance(example.answer, str):
-        return _passage_match(pred.context, [example.answer])
-    elif isinstance(example.answer, list):
-        return _passage_match(pred.context, example.answer)
 
     raise ValueError(f"Invalid answer type: {type(example.answer)}")

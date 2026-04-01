@@ -1,35 +1,55 @@
-import os
-os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+from dspy.evaluate import Evaluate
+from dspy.predict import ChainOfThought, Parallel, Predict, RLM
+from dspy.primitives import BaseModule, Example, Module, Prediction
+from dspy.signatures import (
+    InputField,
+    OutputField,
+    Signature,
+    SignatureMeta,
+    ensure_signature,
+    infer_prefix,
+    make_signature,
+)
+from dspy.teleprompt import GEPA, Teleprompter, bootstrap_trace_data
 
-from dspy.predict import *
-from dspy.primitives import *
-from dspy.retrievers import *
-from dspy.signatures import *
-from dspy.teleprompt import *
-
-from dspy.evaluate import Evaluate  # isort: skip
-from dspy.clients import *  # isort: skip
-from dspy.adapters import Adapter, ChatAdapter, JSONAdapter, XMLAdapter, TwoStepAdapter, Image, Audio, File, History, Type, Tool, ToolCalls, Code, Reasoning  # isort: skip
+from dspy.adapters import JSONAdapter
+from dspy.clients import BaseLM, DSPY_CACHE, LM
 from dspy.utils.exceptions import ContextWindowExceededError
-from dspy.utils.logging_utils import configure_dspy_loggers, disable_logging, enable_logging
-from dspy.utils.asyncify import asyncify
-from dspy.utils.syncify import syncify
-from dspy.utils.saving import load
-from dspy.streaming.streamify import streamify
-from dspy.utils.usage_tracker import track_usage
+from dspy.utils.logging_utils import configure_dspy_loggers
 
 from dspy.dsp.utils.settings import settings
-from dspy.dsp.colbertv2 import ColBERTv2
-from dspy.clients import DSPY_CACHE
-from dspy.__metadata__ import __name__, __version__, __description__, __url__, __author__, __author_email__
+from dspy.__metadata__ import __author__, __author_email__, __description__, __name__, __url__, __version__
 
 configure_dspy_loggers(__name__)
 
-# Singleton definitions and aliasing
 configure = settings.configure
-load_settings = settings.load
 context = settings.context
-
-BootstrapRS = BootstrapFewShotWithRandomSearch
-
 cache = DSPY_CACHE
+
+__all__ = [
+    "BaseLM",
+    "BaseModule",
+    "ChainOfThought",
+    "GEPA",
+    "Evaluate",
+    "Example",
+    "InputField",
+    "JSONAdapter",
+    "LM",
+    "Module",
+    "OutputField",
+    "Parallel",
+    "Prediction",
+    "Predict",
+    "RLM",
+    "Signature",
+    "SignatureMeta",
+    "Teleprompter",
+    "bootstrap_trace_data",
+    "configure",
+    "context",
+    "ensure_signature",
+    "infer_prefix",
+    "make_signature",
+    "ContextWindowExceededError",
+]

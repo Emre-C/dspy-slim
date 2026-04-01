@@ -8,7 +8,7 @@ from gepa import GEPAResult
 from gepa.core.adapter import ProposalFn
 from gepa.proposer.reflective_mutation.base import ReflectionComponentSelector
 
-from dspy.clients.lm import LM
+from dspy.clients.base_lm import BaseLM
 from dspy.primitives import Example, Module, Prediction
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter, DSPyTrace, PredictorFeedbackFn, ScoreWithFeedback
 from dspy.teleprompt.teleprompt import Teleprompter
@@ -107,27 +107,27 @@ class DspyGEPAResult:
     @property
     def highest_score_achieved_per_val_task(self) -> list[float]:
         return [
-            self.val_subscores[list(self.per_val_instance_best_candidates[val_idx])[0]][val_idx]
+            self.val_subscores[next(iter(self.per_val_instance_best_candidates[val_idx]))][val_idx]
             for val_idx in range(len(self.val_subscores[0]))
         ]
 
     def to_dict(self) -> dict[str, Any]:
-        cands = [{k: v for k, v in cand.items()} for cand in self.candidates]
+        cands = [dict(cand) for cand in self.candidates]
 
-        return dict(
-            candidates=cands,
-            parents=self.parents,
-            val_aggregate_scores=self.val_aggregate_scores,
-            best_outputs_valset=self.best_outputs_valset,
-            val_subscores=self.val_subscores,
-            per_val_instance_best_candidates=[list(s) for s in self.per_val_instance_best_candidates],
-            discovery_eval_counts=self.discovery_eval_counts,
-            total_metric_calls=self.total_metric_calls,
-            num_full_val_evals=self.num_full_val_evals,
-            log_dir=self.log_dir,
-            seed=self.seed,
-            best_idx=self.best_idx,
-        )
+        return {
+            "candidates": cands,
+            "parents": self.parents,
+            "val_aggregate_scores": self.val_aggregate_scores,
+            "best_outputs_valset": self.best_outputs_valset,
+            "val_subscores": self.val_subscores,
+            "per_val_instance_best_candidates": [list(s) for s in self.per_val_instance_best_candidates],
+            "discovery_eval_counts": self.discovery_eval_counts,
+            "total_metric_calls": self.total_metric_calls,
+            "num_full_val_evals": self.num_full_val_evals,
+            "log_dir": self.log_dir,
+            "seed": self.seed,
+            "best_idx": self.best_idx,
+        }
 
     @staticmethod
     def from_gepa_result(gepa_result: "GEPAResult", adapter: "DspyAdapter") -> "DspyGEPAResult":
@@ -211,7 +211,7 @@ class GEPA(Teleprompter):
         reflection_minibatch_size: The number of examples to use for reflection in a single GEPA step. Default is 3.
         candidate_selection_strategy: The strategy to use for candidate selection. Default is "pareto",
             which stochastically selects candidates from the Pareto frontier of all validation scores.
-            Options: "pareto", "current_best".
+            Options: "pareto", "current_best", "epsilon_greedy", "top_k_pareto".
         reflection_lm: The language model to use for reflection. Required parameter. GEPA benefits from
             a strong reflection model. Consider using `dspy.LM(model='gpt-5', temperature=1.0, max_tokens=32000)`
             for optimal performance.
@@ -238,9 +238,9 @@ class GEPA(Teleprompter):
               than independent optimization
             - **External knowledge integration**: Runtime access to databases, APIs, or knowledge bases
 
-            The default proposer handles the vast majority of use cases effectively. Use
-            MultiModalInstructionProposer() from dspy.teleprompt.gepa.instruction_proposal for visual
-            content or implement custom ProposalFn for highly specialized requirements.
+            The default proposer handles the vast majority of use cases effectively. For visual
+            content or highly specialized requirements, implement a custom ``ProposalFn`` (see
+            ``gepa`` instruction-proposal strategies) or extend the default proposer.
 
             Note: When both instruction_proposer and reflection_lm are set, the instruction_proposer is called
             in the reflection_lm context. However, reflection_lm is optional when using a custom instruction_proposer.
@@ -275,6 +275,10 @@ class GEPA(Teleprompter):
         warn_on_score_mismatch: GEPA (currently) expects the metric to return the same module-level score when
             called with and without the pred_name. This flag (defaults to True) determines whether a warning is
             raised if a mismatch in module-level and predictor-level score is detected.
+        mlflow_tracking_uri: The tracking URI to use for MLflow (when use_mlflow=True).
+        mlflow_experiment_name: The experiment name to use for MLflow (when use_mlflow=True).
+        raise_on_exception: Whether optimization-time exceptions from GEPA should be propagated
+            immediately instead of being logged and handled gracefully.
         seed: The random seed to use for reproducibility. Default is 0.
         gepa_kwargs: (Optional) Additional keyword arguments to pass directly to [gepa.optimize](https://github.com/gepa-ai/gepa/blob/main/src/gepa/api.py).
             Useful for accessing advanced GEPA features not directly exposed through DSPy's GEPA interface.
@@ -299,8 +303,6 @@ class GEPA(Teleprompter):
               'full_eval' (evaluate every id each time) or an [EvaluationPolicy](https://github.com/gepa-ai/gepa/blob/main/src/gepa/strategies/eval_policy.py) instance. Default is 'full_eval'.
             - use_mlflow: If True, enables MLflow integration to log optimization progress.
               MLflow can be used alongside Weights & Biases (WandB).
-            - mlflow_tracking_uri: The tracking URI to use for MLflow (when use_mlflow=True).
-            - mlflow_experiment_name: The experiment name to use for MLflow (when use_mlflow=True).
 
             Note: Parameters already handled by DSPy's GEPA class will be overridden by the direct parameters
             and should not be passed through gepa_kwargs.
@@ -337,8 +339,8 @@ class GEPA(Teleprompter):
         max_metric_calls: int | None = None,
         # Reflection configuration
         reflection_minibatch_size: int = 3,
-        candidate_selection_strategy: Literal["pareto", "current_best"] = "pareto",
-        reflection_lm: LM | None = None,
+        candidate_selection_strategy: Literal["pareto", "current_best", "epsilon_greedy", "top_k_pareto"] = "pareto",
+        reflection_lm: BaseLM | None = None,
         skip_perfect_score: bool = True,
         add_format_failure_as_feedback: bool = False,
         instruction_proposer: "ProposalFn | None" = None,
@@ -359,6 +361,9 @@ class GEPA(Teleprompter):
         track_best_outputs: bool = False,
         warn_on_score_mismatch: bool = True,
         use_mlflow: bool = False,
+        mlflow_tracking_uri: str | None = None,
+        mlflow_experiment_name: str | None = None,
+        raise_on_exception: bool = True,
         # Reproducibility
         seed: int | None = 0,
         # GEPA passthrough kwargs
@@ -416,6 +421,9 @@ class GEPA(Teleprompter):
         self.wandb_init_kwargs = wandb_init_kwargs
         self.warn_on_score_mismatch = warn_on_score_mismatch
         self.use_mlflow = use_mlflow
+        self.mlflow_tracking_uri = mlflow_tracking_uri
+        self.mlflow_experiment_name = mlflow_experiment_name
+        self.raise_on_exception = raise_on_exception
 
         if track_best_outputs:
             assert track_stats, "track_stats must be True if track_best_outputs is True."
@@ -431,35 +439,35 @@ class GEPA(Teleprompter):
     def auto_budget(
         self, num_preds, num_candidates, valset_size: int, minibatch_size: int = 35, full_eval_steps: int = 5
     ) -> int:
-        import numpy as np
+        import math
 
-        num_trials = int(max(2 * (num_preds * 2) * np.log2(num_candidates), 1.5 * num_candidates))
+        num_trials = int(max(2 * (num_preds * 2) * math.log2(num_candidates), 1.5 * num_candidates))
         if num_trials < 0 or valset_size < 0 or minibatch_size < 0:
             raise ValueError("num_trials, valset_size, and minibatch_size must be >= 0.")
         if full_eval_steps < 1:
             raise ValueError("full_eval_steps must be >= 1.")
 
-        V = valset_size
-        N = num_trials
-        M = minibatch_size
+        valset_size_ = valset_size
+        num_trials_ = num_trials
+        minibatch_size_ = minibatch_size
         m = full_eval_steps
 
         # Initial full evaluation on the default program
-        total = V
+        total = valset_size_
 
         # Assume upto 5 trials for bootstrapping each candidate
         total += num_candidates * 5
 
         # N minibatch evaluations
-        total += N * M
-        if N == 0:
+        total += num_trials_ * minibatch_size_
+        if num_trials_ == 0:
             return total  # no periodic/full evals inside the loop
         # Periodic full evals occur when trial_num % (m+1) == 0, where trial_num runs 2..N+1
-        periodic_fulls = (N + 1) // (m) + 1
+        periodic_fulls = (num_trials_ + 1) // (m) + 1
         # If 1 <= N < m, the code triggers one final full eval at the end
-        extra_final = 1 if N < m else 0
+        extra_final = 1 if num_trials_ < m else 0
 
-        total += (periodic_fulls + extra_final) * V
+        total += (periodic_fulls + extra_final) * valset_size_
         return total
 
     def compile(
@@ -539,7 +547,7 @@ class GEPA(Teleprompter):
                         o["feedback"] = f"This trajectory got a score of {o['score']}."
                     return o
                 else:
-                    return dict(score=o, feedback=f"This trajectory got a score of {o}.")
+                    return {"score": o, "feedback": f"This trajectory got a score of {o}."}
 
             return feedback_fn
 
@@ -587,9 +595,11 @@ class GEPA(Teleprompter):
             wandb_api_key=self.wandb_api_key,
             wandb_init_kwargs=self.wandb_init_kwargs,
             use_mlflow=self.use_mlflow,
+            mlflow_tracking_uri=self.mlflow_tracking_uri,
+            mlflow_experiment_name=self.mlflow_experiment_name,
             track_best_outputs=self.track_best_outputs,
             display_progress_bar=True,
-            raise_on_exception=True,
+            raise_on_exception=self.raise_on_exception,
             # Reproducibility
             seed=self.seed,
             **self.gepa_kwargs,

@@ -8,8 +8,6 @@ import pydantic
 from dspy.clients.base_lm import BaseLM
 
 if TYPE_CHECKING:
-    from litellm import ModelResponseStream
-
     from dspy.signatures.signature import Signature
 
 CUSTOM_TYPE_START_IDENTIFIER = "<<CUSTOM-TYPE-START-IDENTIFIER>>"
@@ -107,7 +105,7 @@ class Type(pydantic.BaseModel):
         return False
 
     @classmethod
-    def parse_stream_chunk(cls, chunk: "ModelResponseStream") -> Optional["Type"]:
+    def parse_stream_chunk(cls, chunk) -> Optional["Type"]:
         """
         Parse a stream chunk into the custom type.
 
@@ -212,6 +210,6 @@ def split_message_content_for_custom_types(messages: list[dict[str, Any]]) -> li
 def _parse_doubly_quoted_json(json_str: str) -> Any:
     """
     Parse a doubly quoted JSON string into a Python dict.
-    `dspy.Type` can be json-encoded twice if included in either list or dict, e.g., `list[dspy.experimental.Document]`
+    `dspy.Type` can be json-encoded twice if included in either list or dict, e.g., nested custom types.
     """
     return json.loads(json.loads(f'"{json_str}"'))

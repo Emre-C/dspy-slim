@@ -190,6 +190,10 @@ class BaseLM:
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+    def dump_state(self):
+        filtered_kwargs = {k: v for k, v in self.kwargs.items() if k != "api_key"}
+        return {"model": self.model, "model_type": self.model_type, "cache": self.cache} | filtered_kwargs
+
     def copy(self, **kwargs):
         """Returns a copy of the language model with possibly updated parameters.
 
@@ -269,7 +273,7 @@ class BaseLM:
             if hasattr(c, "message") and getattr(c.message, "tool_calls", None):
                 output["tool_calls"] = c.message.tool_calls
 
-            # Extract citations from LiteLLM response if available
+            # Extract citations from provider-specific response fields if available
             citations = self._extract_citations_from_response(c)
             if citations:
                 output["citations"] = citations
@@ -282,8 +286,7 @@ class BaseLM:
         return outputs
 
     def _extract_citations_from_response(self, choice):
-        """Extract citations from LiteLLM response if available.
-        Reference: https://docs.litellm.ai/docs/providers/anthropic#beta-citations-api
+        """Extract citations from provider-specific response fields if available.
 
         Args:
             choice: The choice object from response.choices
@@ -292,7 +295,7 @@ class BaseLM:
             A list of citation dictionaries or None if no citations found
         """
         try:
-            # Check for citations in LiteLLM provider_specific_fields
+            # Check for citations in provider-specific fields when available.
             citations_data = choice.message.provider_specific_fields.get("citations")
             if isinstance(citations_data, list):
                 return [citation for citations in citations_data for citation in citations]
@@ -319,7 +322,7 @@ class BaseLM:
                 for content_item in output_item.content:
                     text_outputs.append(content_item.text)
             elif output_item_type == "function_call":
-                tool_calls.append(output_item.model_dump())
+                tool_calls.append(dict(output_item))
             elif output_item_type == "reasoning":
                 if getattr(output_item, "content", None) and len(output_item.content) > 0:
                     for content_item in output_item.content:

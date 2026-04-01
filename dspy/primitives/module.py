@@ -3,7 +3,6 @@ import logging
 from typing import Any, TextIO
 
 from dspy.dsp.utils.settings import settings
-from dspy.predict.parallel import Parallel
 from dspy.primitives.base_module import BaseModule
 from dspy.primitives.example import Example
 from dspy.primitives.prediction import Prediction
@@ -294,6 +293,8 @@ class Module(BaseModule, metaclass=ProgramMeta):
         Returns:
             List of results, and optionally failed examples and exceptions.
         """
+        from dspy.predict.parallel import Parallel
+
         # Create a list of execution pairs (self, example)
         exec_pairs = [(self, example.inputs()) for example in examples]
 

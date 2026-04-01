@@ -61,6 +61,24 @@ IMPORTANT: This is ITERATIVE. Each code block you write will execute, you'll see
 
 You have max {max_llm_calls} sub-LLM calls. When done, call SUBMIT() with your output."""
 
+# Appendix C, §C.1 (Recursive Language Models paper, arXiv:2512.24601): extra root prompt for
+# Qwen3-Coder-style models vs GPT-5 — minimize redundant llm_query calls via batching.
+PAPER_APPENDIX_C_QWEN_CODER = """\
+IMPORTANT: Be very careful about using `llm_query` as it incurs high runtime costs. Always batch as much information as reasonably possible into each call (aim for around ~200k characters per call). For example, if you have 1000 lines of information to process, it is much better to split into chunks of 5 lines and call `llm_query` on each chunk (200 calls total) rather than making 1000 individual calls. Minimize the number of `llm_query` calls by batching related information together."""
+
+# Same appendix: Qwen3-8B / tight ~32k-context variant (sub-LLM limits + conservative batching).
+PAPER_APPENDIX_C_QWEN_SMALL = """\
+IMPORTANT: You have a total context window of approximately ~32k tokens. Be very careful about context length limits. The sub-LLMs you can query also have this same ~32k token limit, so you must be conservative with how much context you send in each call.
+
+Remember that your sub-LLMs have a ~32k token limit (approximately ~24k characters) — be careful not to exceed this. For example, a viable strategy is to feed 2-3 documents per sub-LLM query.
+
+IMPORTANT: Be very careful about using `llm_query` as it incurs high runtime costs. Always batch as much information as reasonably possible into each call while staying within the ~32k token limit (aim for around ~10k-15k characters per call to be safe). For example, if you have 1000 lines of information to process, it is much better to split into chunks of 50-100 lines and call `llm_query` on each chunk (10-20 calls total) rather than making 1000 individual calls. Minimize the number of `llm_query` calls by batching related information together, but always respect the ~32k token limit."""
+
+_PAPER_APPENDIX_BY_NAME: dict[str, str] = {
+    "qwen_coder": PAPER_APPENDIX_C_QWEN_CODER,
+    "qwen_small": PAPER_APPENDIX_C_QWEN_SMALL,
+}
+
 _PYTHON_FENCE_LANGS = {"python", "py", "python3", "py3", ""}
 
 
@@ -130,8 +148,9 @@ class RLM(Module):
         max_output_chars: int = 10_000,
         verbose: bool = False,
         tools: list[Callable] | None = None,
-        sub_lm: dspy.LM | None = None,
+        sub_lm: dspy.BaseLM | None = None,
         interpreter: CodeInterpreter | None = None,
+        paper_instruction_appendix: str | None = None,
     ):
         """
         Args:
@@ -146,6 +165,9 @@ class RLM(Module):
             sub_lm: LM for llm_query/llm_query_batched. Defaults to dspy.settings.lm.
                    Allows using a different (e.g., cheaper) model for sub-queries.
             interpreter: CodeInterpreter implementation to use. Defaults to PythonInterpreter.
+            paper_instruction_appendix: Optional extra root instructions from the RLM paper
+                  (Appendix C): ``"qwen_coder"`` (Qwen3-Coder-style batching / ~200k sub-call chars)
+                  or ``"qwen_small"`` (~32k token limits + conservative batching). ``None`` adds none.
         """
         super().__init__()
         self.signature = ensure_signature(signature)
@@ -155,6 +177,8 @@ class RLM(Module):
         self.verbose = verbose
         self.sub_lm = sub_lm
         self._interpreter = interpreter
+        self.paper_instruction_appendix = paper_instruction_appendix
+        self._paper_action_instruction_suffix = self._resolve_paper_appendix(paper_instruction_appendix)
         self._user_tools = self._normalize_tools(tools)
         self._validate_tools(self._user_tools)
 
@@ -162,6 +186,19 @@ class RLM(Module):
         action_sig, extract_sig = self._build_signatures()
         self.generate_action = dspy.Predict(action_sig)
         self.extract = dspy.Predict(extract_sig)
+
+    @staticmethod
+    def _resolve_paper_appendix(name: str | None) -> str:
+        if name is None:
+            return ""
+        key = name.strip().lower()
+        if key in ("", "none"):
+            return ""
+        if key not in _PAPER_APPENDIX_BY_NAME:
+            raise ValueError(
+                f"paper_instruction_appendix must be None, 'none', 'qwen_coder', or 'qwen_small', got {name!r}"
+            )
+        return "\n\n" + _PAPER_APPENDIX_BY_NAME[key]
 
     # =========================================================================
     # Tool Creation and Validation
@@ -306,7 +343,7 @@ class RLM(Module):
             dspy.Signature({}, task_instructions + ACTION_INSTRUCTIONS_TEMPLATE.format(
                 inputs=inputs_str, final_output_names=final_output_names, output_fields=output_fields,
                 max_llm_calls=self.max_llm_calls,
-            ) + tool_docs)
+            ) + self._paper_action_instruction_suffix + tool_docs)
             .append("variables_info", dspy.InputField(desc="Metadata about the variables available in the REPL"), type_=str)
             .append("repl_history", dspy.InputField(desc="Previous REPL code executions and their outputs"), type_=REPLHistory)
             .append("iteration", dspy.InputField(desc="Current iteration number (1-indexed) out of max_iterations"), type_=str)

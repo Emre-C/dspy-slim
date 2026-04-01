@@ -6,9 +6,8 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 from typeguard import TypeCheckError, check_type
 
-from dspy.adapters.chat_adapter import ChatAdapter
+from dspy.adapters.json_adapter import JSONAdapter
 from dspy.clients.base_lm import BaseLM
-from dspy.clients.lm import LM
 from dspy.dsp.utils.settings import settings
 from dspy.predict.parameter import Parameter
 from dspy.primitives.module import Module
@@ -108,7 +107,7 @@ class Predict(Module, Parameter):
 
         self.signature = self.signature.load_state(state["signature"])
         sanitized_lm_state = _sanitize_lm_state(state["lm"], allow_unsafe_lm_state) if state["lm"] else None
-        self.lm = LM(**sanitized_lm_state) if sanitized_lm_state else None
+        self.lm = BaseLM(**sanitized_lm_state) if sanitized_lm_state else None
 
         if "extended_signature" in state:  # legacy, up to and including 2.5, for CoT.
             raise NotImplementedError("Loading extended_signature is no longer supported in DSPy 2.6+")
@@ -232,38 +231,19 @@ class Predict(Module, Parameter):
             trace.append((self, {**kwargs}, pred))
         return pred
 
-    def _should_stream(self):
-        stream_listeners = settings.stream_listeners or []
-        should_stream = settings.send_stream is not None
-        if should_stream and len(stream_listeners) > 0:
-            should_stream = any(stream_listener.predict == self for stream_listener in stream_listeners)
-
-        return should_stream
-
     def forward(self, **kwargs):
         lm, config, signature, demos, kwargs = self._forward_preprocess(**kwargs)
 
-        adapter = settings.adapter or ChatAdapter()
-
-        if self._should_stream():
-            with settings.context(caller_predict=self):
-                completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
-        else:
-            with settings.context(send_stream=None):
-                completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        adapter = settings.adapter or JSONAdapter()
+        completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
 
         return self._forward_postprocess(completions, signature, **kwargs)
 
     async def aforward(self, **kwargs):
         lm, config, signature, demos, kwargs = self._forward_preprocess(**kwargs)
 
-        adapter = settings.adapter or ChatAdapter()
-        if self._should_stream():
-            with settings.context(caller_predict=self):
-                completions = await adapter.acall(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
-        else:
-            with settings.context(send_stream=None):
-                completions = await adapter.acall(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        adapter = settings.adapter or JSONAdapter()
+        completions = await adapter.acall(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
 
         return self._forward_postprocess(completions, signature, **kwargs)
 

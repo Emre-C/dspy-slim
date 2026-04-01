@@ -5,17 +5,15 @@ import json_repair
 
 from dspy.adapters.types import History, Type
 from dspy.adapters.types.base_type import split_message_content_for_custom_types
-from dspy.adapters.types.reasoning import Reasoning
 from dspy.adapters.types.tool import Tool, ToolCalls
 from dspy.clients.base_lm import BaseLM
-from dspy.experimental import Citations
 from dspy.signatures.signature import Signature
 from dspy.utils.callback import BaseCallback, with_callbacks
 from dspy.utils.exceptions import AdapterParseError
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_NATIVE_RESPONSE_TYPES = [Citations, Reasoning]
+_DEFAULT_NATIVE_RESPONSE_TYPES: list[type[Type]] = []
 
 
 class Adapter:

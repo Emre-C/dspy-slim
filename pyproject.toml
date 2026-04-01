@@ -21,23 +21,19 @@ classifiers = [
     "Programming Language :: Python :: 3"
 ]
 dependencies = [
-    "openai>=0.28.1",
+    "openai>=1.0.0",
     "regex>=2023.10.3",
     "orjson>=3.9.0",
     "tqdm>=4.66.1",
-    "requests>=2.31.0",
     "pydantic>=2.0",
-    "litellm>=1.64.0,<=1.82.6",
     "diskcache>=5.6.0",
     "json-repair>=0.54.2",
+    "jsonschema>=4.0.0",
     "tenacity>=8.2.3",
     "anyio",
     "asyncer==0.0.8",
     "cachetools>=5.5.0",
-    "cloudpickle>=3.0.0",
-    "numpy>=1.26.0",
-    "xxhash>=3.5.0",
-    "gepa[dspy]==0.0.27",
+    "gepa[dspy]==0.1.1",
     "typeguard>=4.4.3",
 ]
 
@@ -48,6 +44,7 @@ mcp = ["mcp; python_version >= '3.10'"]
 langchain = ["langchain_core"]
 optuna = ["optuna>=3.4.0"]
 dev = [
+    "datasets>=2.14.6",
     "pytest>=6.2.5",
     "pytest-mock>=3.12.0",
     "pytest-asyncio>=0.26.0",
@@ -56,8 +53,6 @@ dev = [
     "pillow>=10.1.0",
     "datamodel_code_generator>=0.26.3",
     "build>=1.0.3",
-    "litellm>=1.64.0; sys_platform == 'win32' or python_version == '3.14'",
-    "litellm[proxy]>=1.64.0; sys_platform != 'win32' and python_version < '3.14'",  # Remove 3.14 condition once uvloop supports
 ]
 test_extras = [
     "mcp; python_version >= '3.10'",
@@ -76,7 +71,8 @@ exclude = ["tests", "tests.*"]
 dspy = ["primitives/*.js"]
 
 [project.urls]
-homepage = "https://github.com/stanfordnlp/dspy"
+homepage = "https://github.com/Emre-C/dspy-slim"
+documentation = "https://dspy.ai"
 
 [tool.coverage.run]
 branch = true
@@ -110,11 +106,9 @@ exclude_lines = [
 ]
 
 [tool.pytest.ini_options]
-filterwarnings = [
-    # litellm uses deprecated pydantic config classes sometimes.
-    # The issue has been fixed repeatedly, but still keeps showing up.
-    # For examples, see litellm PRs #6903, #7300, #8096, #9372, and #12528.
-    "ignore:.+class-based `config` is deprecated, use ConfigDict:DeprecationWarning",
+filterwarnings = []
+markers = [
+    "deno: tests that require Deno on PATH",
 ]
 
 [tool.ruff]

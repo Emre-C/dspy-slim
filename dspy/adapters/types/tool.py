@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, get_origin, get_type_hints
+from typing import Any, Callable, get_origin, get_type_hints
 
 import pydantic
 from jsonschema import ValidationError, validate
@@ -9,10 +9,6 @@ from pydantic import BaseModel, TypeAdapter, create_model
 from dspy.adapters.types.base_type import Type
 from dspy.dsp.utils.settings import settings
 from dspy.utils.callback import with_callbacks
-
-if TYPE_CHECKING:
-    import mcp
-    from langchain.tools import BaseTool
 
 _TYPE_MAPPING = {"string": str, "integer": int, "number": float, "boolean": bool, "array": list, "object": dict}
 
@@ -199,56 +195,18 @@ class Tool(Type):
             return result
 
     @classmethod
-    def from_mcp_tool(cls, session: "mcp.ClientSession", tool: "mcp.types.Tool") -> "Tool":
-        """
-        Build a DSPy tool from an MCP tool and a ClientSession.
-
-        Args:
-            session: The MCP session to use.
-            tool: The MCP tool to convert.
-
-        Returns:
-            A Tool object.
-        """
-        from dspy.utils.mcp import convert_mcp_tool
-
-        return convert_mcp_tool(session, tool)
+    def from_mcp_tool(cls, session: Any, tool: Any) -> "Tool":
+        """Not available in this minimal build (``dspy.utils.mcp`` removed)."""
+        raise ImportError(
+            "MCP tool conversion requires the full DSPy install; dspy.utils.mcp is omitted in this build."
+        )
 
     @classmethod
-    def from_langchain(cls, tool: "BaseTool") -> "Tool":
-        """
-        Build a DSPy tool from a LangChain tool.
-
-        Args:
-            tool: The LangChain tool to convert.
-
-        Returns:
-            A Tool object.
-
-        Examples:
-
-        ```python
-        import asyncio
-        import dspy
-        from langchain.tools import tool as lc_tool
-
-        @lc_tool
-        def add(x: int, y: int):
-            "Add two numbers together."
-            return x + y
-
-        dspy_tool = dspy.Tool.from_langchain(add)
-
-        async def run_tool():
-            return await dspy_tool.acall(x=1, y=2)
-
-        print(asyncio.run(run_tool()))
-        # 3
-        ```
-        """
-        from dspy.utils.langchain_tool import convert_langchain_tool
-
-        return convert_langchain_tool(tool)
+    def from_langchain(cls, tool: Any) -> "Tool":
+        """Not available in this minimal build (``dspy.utils.langchain_tool`` removed)."""
+        raise ImportError(
+            "LangChain tool conversion requires the full DSPy install; dspy.utils.langchain_tool is omitted in this build."
+        )
 
     def __repr__(self):
         return f"Tool(name={self.name}, desc={self.desc}, args={self.args})"

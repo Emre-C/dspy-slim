@@ -6,8 +6,6 @@ import dspy
 from dspy.primitives.module import Module
 from dspy.signatures.signature import Signature, ensure_signature
 
-# NOTE: This restores the legacy rationale_field behavior after PR #8822.
-
 
 class ChainOfThought(Module):
     def __init__(
@@ -18,13 +16,13 @@ class ChainOfThought(Module):
         **config: dict[str, Any],
     ):
         """
-        A module that reasons step by step in order to predict the output of a task.
+        A lightweight wrapper around ``dspy.Predict`` that prepends a reasoning field.
 
         Args:
-            signature (Type[dspy.Signature]): The signature of the module.
-            rationale_field (Optional[Union[dspy.OutputField, pydantic.fields.FieldInfo]]): The field that will contain the reasoning.
-            rationale_field_type (Type): The type of the rationale field.
-            **config: The configuration for the module.
+            signature: The signature of the module.
+            rationale_field: Optional custom field definition for the reasoning output.
+            rationale_field_type: The type of the reasoning field.
+            **config: Configuration forwarded to ``dspy.Predict``.
         """
         super().__init__()
         signature = ensure_signature(signature)
