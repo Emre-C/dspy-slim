@@ -117,7 +117,10 @@ class PythonInterpreter:
         self.tools = dict(tools) if tools else {}
         self.output_fields = output_fields
         self._tools_registered = False
-        # TODO later on add enable_run (--allow-run) by proxying subprocess.run through Deno.run() to fix 'emscripten does not support processes' error
+        # Deno --allow-run is intentionally omitted: the RLM sandbox should not
+        # spawn host subprocesses.  Pyodide's emscripten backend does not support
+        # them anyway ('emscripten does not support processes'), so enabling the
+        # flag would only widen the attack surface without adding capability.
 
         if deno_command:
             self.deno_command = list(deno_command)

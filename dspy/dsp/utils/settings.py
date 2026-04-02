@@ -48,7 +48,7 @@ class Settings:
       1. Only one unique thread (which can be any thread!) can call dspy.configure.
       2. It affects a global state, visible to all. As a result, user threads work, but they shouldn't be
          mixed with concurrent changes to dspy.configure from the "main" thread.
-         (TODO: In the future, add warnings: if there are near-in-time user-thread reads followed by .configure calls.)
+         (Future: add warnings when near-in-time user-thread reads are followed by .configure calls.)
       3. Any thread can use dspy.context. It propagates to child threads created with DSPy primitives such as Parallel.
     """
 
@@ -189,8 +189,6 @@ class Settings:
             [`dspy.LM`][dspy.LM]: create the language model you pass as `lm`.
             `dspy.context`: temporary overrides inside one block.
         """
-        # `dspy.configure` is documented manually in docs/docs/api/utils/context.md
-        # changes here should be reflected there as well.
         # If no exception is raised, the `configure` call is allowed.
         self._ensure_configure_allowed()
 
@@ -231,8 +229,6 @@ class Settings:
         See Also:
             `dspy.configure`: set process-wide defaults.
         """
-        # `dspy.context` is documented manually in docs/docs/api/utils/context.md
-        # changes here should be reflected there as well.
         original_overrides = thread_local_overrides.get().copy()
         new_overrides = dotdict({**main_thread_config, **original_overrides, **kwargs})
         token = thread_local_overrides.set(new_overrides)

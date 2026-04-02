@@ -35,8 +35,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# TODO: Optimize this prompt across a diverse benchmark
-
+# TODO: Optimize ACTION_INSTRUCTIONS_TEMPLATE via GEPA across a diverse
+# benchmark suite (e.g. SQuAD, long-context QA, multi-hop reasoning).
+# The current prompt is hand-tuned; systematic optimization should improve
+# RLM scaffold quality across model families.
 ACTION_INSTRUCTIONS_TEMPLATE = """You are tasked with producing the following outputs given the inputs {inputs}:
 {output_fields}
 

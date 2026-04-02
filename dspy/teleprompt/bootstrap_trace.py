@@ -45,8 +45,14 @@ def bootstrap_trace_data(
         devset=dataset,
         num_threads=num_threads,
         display_progress=True,
-        provide_traceback=False,  # TODO(check with team)
-        max_errors=len(dataset) * 10,  # TODO(check with team)
+        # Tracebacks are suppressed: bootstrap_trace already catches and logs
+        # format failures individually; surfacing raw tracebacks would duplicate
+        # noise without adding diagnostic value.
+        provide_traceback=False,
+        # A generous error budget (10× dataset size) lets bootstrapping survive
+        # sporadic LM formatting failures without aborting the entire run, while
+        # still bounding runaway retry loops.
+        max_errors=len(dataset) * 10,
         failure_score=failure_score,
     )
 
@@ -124,10 +130,11 @@ def bootstrap_trace_data(
         try:
             prediction, trace = prediction
         except ValueError as ve:
-            # TODO(GRPO Team): Often during GRPO bootstrapping, the LLM response does not follow dspy formatting. This
-            # leads to a value error. To reproduce this issue, try Qwen/Qwen2.5-Coder-0.5B-Instruct with MATH dataset.
-            # Proposal(Lakshya): We should capture the incorrectly-formatted LLM response, and store it in the trace,
-            # and pass it to in the GRPO group with a high-negative user-configurable score.
+            # During bootstrapping the LLM response may not follow dspy formatting,
+            # leading to a ValueError when unpacking (prediction, trace).
+            # This fork treats warn-and-skip as the final behavior: capturing
+            # malformed responses for negative-score training (upstream GRPO
+            # proposal) is out of scope since fine-tuning is not a supported surface.
             logger.warning(
                 "Failed to unpack prediction and trace. This is likely due to the LLM response not following "
                 "dspy formatting."

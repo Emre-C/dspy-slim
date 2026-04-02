@@ -1,3 +1,7 @@
-The tests in this directory are primarily concerned with code correctness and Adapter reliability.
+The tests in `tests/minimal/` cover the supported surface of this fork: imports, predictors, RLM, ReAct, GEPA, parallel execution, callbacks, metrics, and evaluate.
 
-If you're looking for testing the end-to-end quality of DSPy modules and optimizer, refer to [LangProBe](https://github.com/Shangyint/langProBe).
+Run them with:
+
+```bash
+uv run --python .venv/bin/python --module pytest tests/minimal -vv
+```

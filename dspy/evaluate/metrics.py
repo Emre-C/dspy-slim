@@ -1,5 +1,3 @@
-# TODO: This should move internally. Same for passage_match. dspy.metrics.answer_exact_match, dspy.metrics.answer_passage_match
-
 import re
 import string
 import unicodedata

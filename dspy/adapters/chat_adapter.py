@@ -201,27 +201,3 @@ class ChatAdapter(Adapter):
             output.append(f"[[ ## {field.name} ## ]]\n{formatted_field_value}")
 
         return "\n\n".join(output).strip()
-
-    def format_finetune_data(
-        self,
-        signature: type[Signature],
-        demos: list[dict[str, Any]],
-        inputs: dict[str, Any],
-        outputs: dict[str, Any],
-    ) -> dict[str, list[Any]]:
-        """
-        Format the call data into finetuning data according to the OpenAI API specifications.
-
-        For the chat adapter, this means formatting the data as a list of messages, where each message is a dictionary
-        with a "role" and "content" key. The role can be "system", "user", or "assistant". Then, the messages are
-        wrapped in a dictionary with a "messages" key.
-        """
-        system_user_messages = self.format(  # returns a list of dicts with the keys "role" and "content"
-            signature=signature, demos=demos, inputs=inputs
-        )
-        assistant_message_content = self.format_assistant_message_content(  # returns a string, without the role
-            signature=signature, outputs=outputs
-        )
-        assistant_message = {"role": "assistant", "content": assistant_message_content}
-        messages = system_user_messages + [assistant_message]
-        return {"messages": messages}

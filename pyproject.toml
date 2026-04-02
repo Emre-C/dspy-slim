@@ -100,7 +100,6 @@ markers = [
 include = ["dspy/**/*.py", "tests/**/*.py"]
 exclude = [
   "dspy/__metadata__.py",
-  "tests/reliability/*.py",
 ]
 
 

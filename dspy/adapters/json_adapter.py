@@ -202,12 +202,6 @@ class JSONAdapter(ChatAdapter):
             d = {k.name: v for k, v in d}
             return json.dumps(serialize_for_json(d), indent=2, ensure_ascii=False)
 
-    def format_finetune_data(
-        self, signature: type[Signature], demos: list[dict[str, Any]], inputs: dict[str, Any], outputs: dict[str, Any]
-    ) -> dict[str, list[Any]]:
-        # TODO: implement format_finetune_data method in JSONAdapter
-        raise NotImplementedError
-
 
 def _get_structured_outputs_response_format(
     signature: SignatureMeta,

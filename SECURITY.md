@@ -6,7 +6,7 @@ If you think you have identified a security issue, please do not open a public i
 
 Use GitHub Private Vulnerability Reporting if possible. Click `Security` then `Report a vulnerability` to report.
 
-If private reporting is unavailable, contact the maintainers at `isaac@dspy.ai`.
+If private reporting is unavailable, contact the maintainer at `emre@emrecoklar.com`.
 
 Include enough detail for the maintainers to reproduce, validate, and assess the report, and redact any secrets before sharing a report.
 

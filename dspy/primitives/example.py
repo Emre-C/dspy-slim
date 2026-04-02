@@ -85,8 +85,6 @@ class Example:
         [`Metrics`](../../learn/evaluation/metrics.md): Write metric functions
             that compare an `Example` with a prediction.
     """
-    # TODO: Add a `dspy.datasets.DataLoader` API link once the datasets API
-    # pages exist.
 
     def __init__(self, base=None, **kwargs):
         """Create an `Example` from fields or from an existing record.
