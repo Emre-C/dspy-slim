@@ -11,6 +11,7 @@ def test_top_level_symbols():
         "Predict",
         "ChainOfThought",
         "Parallel",
+        "ReAct",
         "RLM",
         "GEPA",
         "LM",
@@ -18,7 +19,6 @@ def test_top_level_symbols():
         assert hasattr(dspy, name)
 
     for name in (
-        "ReAct",
         "ProgramOfThought",
         "CodeAct",
         "BestOfN",
@@ -26,6 +26,7 @@ def test_top_level_symbols():
         "MultiChainComparison",
         "KNN",
         "majority",
+        "Teleprompter",
     ):
         assert not hasattr(dspy, name)
 

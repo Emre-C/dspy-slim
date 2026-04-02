@@ -14,7 +14,6 @@ import logging
 import os
 import subprocess
 import threading
-from os import PathLike
 from typing import Any, Callable
 
 from dspy.primitives.code_interpreter import SIMPLE_TYPES, CodeInterpreterError, FinalOutput
@@ -100,23 +99,12 @@ class PythonInterpreter:
     def __init__(
         self,
         deno_command: list[str] | None = None,
-        enable_read_paths: list[PathLike | str] | None = None,
-        enable_write_paths: list[PathLike | str] | None = None,
-        enable_env_vars: list[str] | None = None,
-        enable_network_access: list[str] | None = None,
-        sync_files: bool = True,
         tools: dict[str, Callable[..., str]] | None = None,
         output_fields: list[dict] | None = None,
     ) -> None:
         """
         Args:
             deno_command: command list to launch Deno.
-            enable_read_paths: Files or directories to allow reading from in the sandbox.
-            enable_write_paths: Files or directories to allow writing to in the sandbox.
-                All write paths will also be able to be read from for mounting.
-            enable_env_vars: Environment variable names to allow in the sandbox.
-            enable_network_access: Domains or IPs to allow network access in the sandbox.
-            sync_files: If set, syncs changes within the sandbox back to original files after execution.
             tools: Dictionary mapping tool names to callable functions.
                    Each function should accept keyword arguments and return a string.
                    Tools are callable directly from sandbox code by name.
@@ -126,11 +114,6 @@ class PythonInterpreter:
         if isinstance(deno_command, dict):
             raise TypeError("deno_command must be a list of strings, not a dict")
 
-        self.enable_read_paths = enable_read_paths or []
-        self.enable_write_paths = enable_write_paths or []
-        self.enable_env_vars = enable_env_vars or []
-        self.enable_network_access = enable_network_access or []
-        self.sync_files = sync_files
         self.tools = dict(tools) if tools else {}
         self.output_fields = output_fields
         self._tools_registered = False
@@ -148,32 +131,12 @@ class PythonInterpreter:
             deno_dir = self._get_deno_dir()
             if deno_dir:
                 allowed_read_paths.append(deno_dir)
-
-            if self.enable_read_paths:
-                allowed_read_paths.extend(str(p) for p in self.enable_read_paths)
-            if self.enable_write_paths:
-                allowed_read_paths.extend(str(p) for p in self.enable_write_paths)
             args.append(f"--allow-read={','.join(allowed_read_paths)}")
 
-            self._env_arg = ""
-            if self.enable_env_vars:
-                user_vars = [str(v).strip() for v in self.enable_env_vars]
-                args.append("--allow-env=" + ",".join(user_vars))
-                self._env_arg = ",".join(user_vars)
-            if self.enable_network_access:
-                args.append(f"--allow-net={','.join(str(x) for x in self.enable_network_access)}")
-            if self.enable_write_paths:
-                args.append(f"--allow-write={','.join(str(x) for x in self.enable_write_paths)}")
-
             args.append(self._get_runner_path())
-
-            # For runner.js to load in env vars
-            if self._env_arg:
-                args.append(self._env_arg)
             self.deno_command = args
 
         self.deno_process = None
-        self._mounted_files = False
         self._request_id = 0
         self._owner_thread: int | None = None
         self._pending_large_vars = {}
@@ -213,37 +176,6 @@ class PythonInterpreter:
     def _get_runner_path(self) -> str:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(current_dir, "runner.js")
-
-    def _mount_files(self):
-        if self._mounted_files:
-            return
-        paths_to_mount = []
-        if self.enable_read_paths:
-            paths_to_mount.extend(self.enable_read_paths)
-        if self.enable_write_paths:
-            paths_to_mount.extend(self.enable_write_paths)
-        if not paths_to_mount:
-            return
-        for path in paths_to_mount:
-            if not path:
-                continue
-            if not os.path.exists(path):
-                if self.enable_write_paths and path in self.enable_write_paths:
-                    open(path, "a").close()
-                else:
-                    raise FileNotFoundError(f"Cannot mount non-existent file: {path}")
-            virtual_path = f"/sandbox/{os.path.basename(path)}"
-            self._send_request("mount_file", {"host_path": str(path), "virtual_path": virtual_path}, f"mounting {path}")
-        self._mounted_files = True
-
-    def _sync_files(self):
-        if not self.enable_write_paths or not self.sync_files:
-            return
-        for path in self.enable_write_paths:
-            virtual_path = f"/sandbox/{os.path.basename(path)}"
-            sync_msg = _jsonrpc_notification("sync_file", {"virtual_path": virtual_path, "host_path": str(path)})
-            self.deno_process.stdin.write(sync_msg + "\n")
-            self.deno_process.stdin.flush()
 
     def _extract_parameters(self, fn: Callable) -> list[dict]:
         """Extract parameter info from a callable for sandbox registration."""
@@ -317,7 +249,6 @@ class PythonInterpreter:
         if self.deno_process is None or self.deno_process.poll() is not None:
             # Process identity changed (or process missing), so replay setup.
             self._tools_registered = False
-            self._mounted_files = False
             try:
                 self.deno_process = subprocess.Popen(
                     self.deno_command,
@@ -490,7 +421,6 @@ class PythonInterpreter:
         variables = variables or {}
         code = self._inject_variables(code, variables)
         self._ensure_deno_process()
-        self._mount_files()
         self._register_tools()
 
         for name, value in self._pending_large_vars.items():
@@ -506,7 +436,6 @@ class PythonInterpreter:
         except BrokenPipeError:
             # If the process died, restart and try again once
             self._ensure_deno_process()
-            self._mount_files()
             self._register_tools()
             for name, value in self._pending_large_vars.items():
                 self._inject_large_var(name, value)
@@ -534,7 +463,6 @@ class PythonInterpreter:
                 if msg.get("id") != execute_request_id:
                     raise CodeInterpreterError(f"Response ID mismatch: expected {execute_request_id}, got {msg.get('id')}")
                 result = msg["result"]
-                self._sync_files()
                 # Check for SUBMIT (encoded as success with "final" field)
                 if "final" in result:
                     return FinalOutput(result["final"])

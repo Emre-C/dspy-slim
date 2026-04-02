@@ -16,7 +16,6 @@ from openai import AsyncOpenAI, BadRequestError, OpenAI
 
 import dspy
 from dspy.clients.cache import request_cache
-from dspy.dsp.utils.settings import settings
 from dspy.dsp.utils.utils import dotdict
 from dspy.utils.exceptions import ContextWindowExceededError
 
@@ -237,12 +236,12 @@ def _add_dspy_identifier_to_headers(headers: dict[str, Any] | None = None) -> di
 
 
 class LM(BaseLM):
-    """Language model for chat, text, or responses via an OpenAI-compatible API."""
+    """Language model for chat or responses via an OpenAI-compatible API."""
 
     def __init__(
         self,
         model: str,
-        model_type: Literal["chat", "text", "responses"] = "chat",
+        model_type: Literal["chat", "responses"] = "chat",
         temperature: float | None = None,
         max_tokens: int | None = None,
         cache: bool = True,
@@ -335,8 +334,6 @@ class LM(BaseLM):
 
         if self.model_type == "chat":
             completion = openai_chat_completion
-        elif self.model_type == "text":
-            completion = openai_text_completion
         elif self.model_type == "responses":
             completion = openai_responses_completion
         else:
@@ -355,9 +352,6 @@ class LM(BaseLM):
             raise
 
         self._check_truncation(results)
-
-        if not getattr(results, "cache_hit", False) and dspy.settings.usage_tracker and hasattr(results, "usage"):
-            settings.usage_tracker.add_usage(self.model, dict(results.usage))
         return results
 
     async def aforward(
@@ -379,8 +373,6 @@ class LM(BaseLM):
 
         if self.model_type == "chat":
             completion = aopenai_chat_completion
-        elif self.model_type == "text":
-            completion = aopenai_text_completion
         elif self.model_type == "responses":
             completion = aopenai_responses_completion
         else:
@@ -399,20 +391,7 @@ class LM(BaseLM):
             raise
 
         self._check_truncation(results)
-
-        if not getattr(results, "cache_hit", False) and dspy.settings.usage_tracker and hasattr(results, "usage"):
-            settings.usage_tracker.add_usage(self.model, dict(results.usage))
         return results
-
-    def dump_state(self):
-        state_keys = [
-            "model",
-            "model_type",
-            "cache",
-            "num_retries",
-        ]
-        filtered_kwargs = {k: v for k, v in self.kwargs.items() if k != "api_key"}
-        return {key: getattr(self, key) for key in state_keys} | filtered_kwargs
 
     def _check_truncation(self, results):
         if self.model_type != "responses" and any(c.finish_reason == "length" for c in results["choices"]):
@@ -439,42 +418,12 @@ def openai_chat_completion(request: dict[str, Any], num_retries: int):
     return _normalize_openai_response(response)
 
 
-def openai_text_completion(request: dict[str, Any], num_retries: int):
-    request = dict(request)
-    request.pop("rollout_id", None)
-    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
-    messages = request.pop("messages", [])
-    prompt = "\n\n".join([x["content"] for x in messages] + ["BEGIN RESPONSE:"])
-    request["messages"] = [{"role": "user", "content": prompt}]
-    request.pop("response_format", None)
-    request, client_kwargs = _build_client_kwargs(request, num_retries)
-    request["model"] = _provider_model_name(request["model"])
-    client = OpenAI(**client_kwargs)
-    response = client.chat.completions.create(extra_headers=headers, **request)
-    return _normalize_openai_response(response)
-
-
 async def aopenai_chat_completion(request: dict[str, Any], num_retries: int):
     request = dict(request)
     request.pop("rollout_id", None)
     headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
     if "response_format" in request:
         request["response_format"] = _build_chat_response_format(request["response_format"])
-    request, client_kwargs = _build_client_kwargs(request, num_retries)
-    request["model"] = _provider_model_name(request["model"])
-    client = AsyncOpenAI(**client_kwargs)
-    response = await client.chat.completions.create(extra_headers=headers, **request)
-    return _normalize_openai_response(response)
-
-
-async def aopenai_text_completion(request: dict[str, Any], num_retries: int):
-    request = dict(request)
-    request.pop("rollout_id", None)
-    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
-    messages = request.pop("messages", [])
-    prompt = "\n\n".join([x["content"] for x in messages] + ["BEGIN RESPONSE:"])
-    request["messages"] = [{"role": "user", "content": prompt}]
-    request.pop("response_format", None)
     request, client_kwargs = _build_client_kwargs(request, num_retries)
     request["model"] = _provider_model_name(request["model"])
     client = AsyncOpenAI(**client_kwargs)

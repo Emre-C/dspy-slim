@@ -483,30 +483,6 @@ class Signature(BaseModel, metaclass=SignatureMeta):
                 return False
         return True
 
-    @classmethod
-    def dump_state(cls):
-        state = {"instructions": cls.instructions, "fields": []}
-        for field in cls.fields:
-            state["fields"].append(
-                {
-                    "prefix": cls.fields[field].json_schema_extra["prefix"],
-                    "description": cls.fields[field].json_schema_extra["desc"],
-                }
-            )
-
-        return state
-
-    @classmethod
-    def load_state(cls, state):
-        signature_copy = Signature(deepcopy(cls.fields), cls.instructions)
-
-        signature_copy.instructions = state["instructions"]
-        for field, saved_field in zip(signature_copy.fields.values(), state["fields"], strict=False):
-            field.json_schema_extra["prefix"] = saved_field["prefix"]
-            field.json_schema_extra["desc"] = saved_field["description"]
-
-        return signature_copy
-
 
 def ensure_signature(signature: str | type[Signature], instructions=None) -> None | type[Signature]:
     if signature is None:

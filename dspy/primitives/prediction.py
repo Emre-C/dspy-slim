@@ -22,13 +22,6 @@ class Prediction(Example):
         del self._input_keys
 
         self._completions = None
-        self._lm_usage = None
-
-    def get_lm_usage(self):
-        return self._lm_usage
-
-    def set_lm_usage(self, value):
-        self._lm_usage = value
 
     @classmethod
     def from_completions(cls, list_or_dict, signature=None):

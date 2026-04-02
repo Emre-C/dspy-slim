@@ -100,7 +100,7 @@ def any_metric(
     return 0.0
 
 
-def test_gepa_compile_with_track_usage_no_tuple_error(caplog):
+def test_gepa_compile_returns_program():
     student = dspy.Predict("question -> answer")
     trainset = [dspy.Example(question="What is 2+2?", answer="4").with_inputs("question")]
 
@@ -112,7 +112,7 @@ def test_gepa_compile_with_track_usage_no_tuple_error(caplog):
 
     def run_compile():
         try:
-            with dspy.context(lm=task_lm, track_usage=True):
+            with dspy.context(lm=task_lm):
                 optimizer = dspy.GEPA(metric=any_metric, reflection_lm=reflection_lm, max_metric_calls=3)
                 compiled_container["prog"] = optimizer.compile(student, trainset=trainset, valset=trainset)
         except BaseException as e:
@@ -123,7 +123,6 @@ def test_gepa_compile_with_track_usage_no_tuple_error(caplog):
     t.join(timeout=120.0)
 
     assert not t.is_alive(), "GEPA.compile did not complete within timeout."
-    assert "'tuple' object has no attribute 'set_lm_usage'" not in caplog.text
 
     if "e" in exc_container:
         pytest.fail(f"GEPA.compile raised unexpectedly: {exc_container['e']}")

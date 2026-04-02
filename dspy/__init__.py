@@ -1,5 +1,5 @@
 from dspy.evaluate import Evaluate
-from dspy.predict import ChainOfThought, Parallel, Predict, RLM
+from dspy.predict import ChainOfThought, Parallel, Predict, RLM, ReAct
 from dspy.primitives import BaseModule, Example, Module, Prediction
 from dspy.signatures import (
     InputField,
@@ -10,7 +10,7 @@ from dspy.signatures import (
     infer_prefix,
     make_signature,
 )
-from dspy.teleprompt import GEPA, Teleprompter, bootstrap_trace_data
+from dspy.teleprompt import GEPA, bootstrap_trace_data
 
 from dspy.adapters import JSONAdapter
 from dspy.clients import BaseLM, DSPY_CACHE, LM
@@ -41,10 +41,10 @@ __all__ = [
     "Parallel",
     "Prediction",
     "Predict",
+    "ReAct",
     "RLM",
     "Signature",
     "SignatureMeta",
-    "Teleprompter",
     "bootstrap_trace_data",
     "configure",
     "context",

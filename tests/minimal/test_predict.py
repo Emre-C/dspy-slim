@@ -23,24 +23,6 @@ def test_reset_method():
     assert predict_instance.train == []
     assert predict_instance.demos == []
 
-
-def test_lm_after_dump_and_load_state():
-    predict_instance = Predict("input -> output")
-    lm = dspy.BaseLM(
-        model="openai/gpt-4o-mini",
-        model_type="chat",
-        temperature=1,
-        max_tokens=100,
-    )
-    predict_instance.lm = lm
-    dumped_state = predict_instance.dump_state()
-    new_instance = Predict("input -> output")
-    new_instance.load_state(dumped_state)
-    assert new_instance.lm.model == "openai/gpt-4o-mini"
-    assert new_instance.lm.kwargs["temperature"] == 1
-    assert new_instance.lm.kwargs["max_tokens"] == 100
-
-
 def test_call_method():
     predict_instance = Predict("input -> output")
     lm = DummyLM([{"output": "test output"}])

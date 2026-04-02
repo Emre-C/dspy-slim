@@ -4,24 +4,27 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "gepa_rlm_squad.py"
-DSPY_SLIM = Path(__file__).resolve().parents[2]
-
+from tests.minimal.helpers.workspace_scripts import minimal_dspy_root
 
 pytest.importorskip("huggingface_hub")
 pytest.importorskip("pyarrow")
 
 
+@pytest.mark.network
 def test_gepa_rlm_squad_dry_run_script():
-    if not SCRIPT.is_file():
-        pytest.skip(f"Shared script is not present in this checkout: {SCRIPT}")
+    root = minimal_dspy_root()
+    if root is None:
+        pytest.skip("Not in minimal_dspy layout (no scripts/ + dspy-slim/ parent).")
+    script = root / "scripts" / "gepa_rlm_squad.py"
+    dspy_slim = root / "dspy-slim"
+    if not script.is_file():
+        pytest.skip(f"Shared script is not present: {script}")
     r = subprocess.run(
-        [sys.executable, str(SCRIPT), "--dry-run", "--train", "2", "--val", "1"],
-        cwd=str(DSPY_SLIM),
+        [sys.executable, str(script), "--dry-run", "--train", "2", "--val", "1"],
+        cwd=str(dspy_slim),
         capture_output=True,
         text=True,
         timeout=120,

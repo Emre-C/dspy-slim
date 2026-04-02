@@ -6,10 +6,8 @@ from dspy.dsp.utils.settings import settings
 from dspy.primitives.base_module import BaseModule
 from dspy.primitives.example import Example
 from dspy.primitives.prediction import Prediction
-from dspy.utils import magicattr
 from dspy.utils.callback import with_callbacks
 from dspy.utils.inspect_history import pretty_print_history
-from dspy.utils.usage_tracker import track_usage
 
 logger = logging.getLogger(__name__)
 
@@ -91,40 +89,20 @@ class Module(BaseModule, metaclass=ProgramMeta):
 
     @with_callbacks
     def __call__(self, *args, **kwargs) -> Prediction:
-        from dspy.dsp.utils.settings import thread_local_overrides
-
         caller_modules = settings.caller_modules or []
         caller_modules = list(caller_modules)
         caller_modules.append(self)
 
         with settings.context(caller_modules=caller_modules):
-            if settings.track_usage and thread_local_overrides.get().get("usage_tracker") is None:
-                with track_usage() as usage_tracker:
-                    output = self.forward(*args, **kwargs)
-                tokens = usage_tracker.get_total_tokens()
-                self._set_lm_usage(tokens, output)
-
-                return output
-
             return self.forward(*args, **kwargs)
 
     @with_callbacks
     async def acall(self, *args, **kwargs) -> Prediction:
-        from dspy.dsp.utils.settings import thread_local_overrides
-
         caller_modules = settings.caller_modules or []
         caller_modules = list(caller_modules)
         caller_modules.append(self)
 
         with settings.context(caller_modules=caller_modules):
-            if settings.track_usage and thread_local_overrides.get().get("usage_tracker") is None:
-                with track_usage() as usage_tracker:
-                    output = await self.aforward(*args, **kwargs)
-                    tokens = usage_tracker.get_total_tokens()
-                    self._set_lm_usage(tokens, output)
-
-                    return output
-
             return await self.aforward(*args, **kwargs)
 
     def named_predictors(self):
@@ -221,34 +199,6 @@ class Module(BaseModule, metaclass=ProgramMeta):
 
         return "\n".join(s)
 
-    def map_named_predictors(self, func):
-        """Apply a function to all named predictors in this module.
-
-        This method iterates through all Predict instances in the module
-        and applies the given function to each, replacing the original
-        predictor with the function's return value.
-
-        Args:
-            func: A callable that takes a Predict instance and returns
-                a new Predict instance (or compatible object).
-
-        Returns:
-            Module: Returns self for method chaining.
-
-        Examples:
-            >>> import dspy
-            >>> class MyProgram(dspy.Module):
-            ...     def __init__(self):
-            ...         super().__init__()
-            ...         self.qa = dspy.Predict("question -> answer")
-            ...
-            >>> program = MyProgram()
-            >>> program.map_named_predictors(lambda p: p)
-        """
-        for name, predictor in self.named_predictors():
-            set_attribute_by_name(self, name, func(predictor))
-        return self
-
     def inspect_history(self, n: int = 1, file: "TextIO | None" = None) -> None:
         """Display the LM call history for this module.
 
@@ -317,22 +267,6 @@ class Module(BaseModule, metaclass=ProgramMeta):
             results = parallel_executor.forward(exec_pairs)
             return results
 
-    def _set_lm_usage(self, tokens: dict[str, Any], output: Any):
-        # Some optimizers (e.g., GEPA bootstrap tracing) temporarily patch
-        # module.forward to return a tuple: (prediction, trace).
-        # When usage tracking is enabled, ensure we attach usage to the
-        # prediction object if present.
-        prediction_in_output = None
-        if isinstance(output, Prediction):
-            prediction_in_output = output
-        elif isinstance(output, tuple) and len(output) > 0 and isinstance(output[0], Prediction):
-            prediction_in_output = output[0]
-        if prediction_in_output:
-            prediction_in_output.set_lm_usage(tokens)
-        else:
-            logger.warning("Failed to set LM usage. Please return `dspy.Prediction` object from dspy.Module to enable usage tracking.")
-
-
     def __getattribute__(self, name):
         attr = super().__getattribute__(name)
 
@@ -348,7 +282,3 @@ class Module(BaseModule, metaclass=ProgramMeta):
                 )
 
         return attr
-
-
-def set_attribute_by_name(obj, name, value):
-    magicattr.set(obj, name, value)

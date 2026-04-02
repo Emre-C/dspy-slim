@@ -55,7 +55,7 @@ This repository is being maintained as a deliberately minimal, robust DSPy fork.
 ### What we are trying to do
  
  - Keep a minimal DSPy codebase that is easy to reason about and safe to modify.
- - Preserve the parts of DSPy that matter for recursive / agentic workflows, especially `dspy.Signature`, `dspy.RLM`, and `dspy.GEPA`, while keeping the core authoring experience ergonomic with `dspy.Predict`, `dspy.ChainOfThought`, and `dspy.Parallel`.
+ - Preserve the parts of DSPy that matter for recursive / agentic workflows, especially `dspy.Signature`, `dspy.RLM`, `dspy.ReAct`, and `dspy.GEPA`, while keeping the core authoring experience ergonomic with `dspy.Predict`, `dspy.ChainOfThought`, and `dspy.Parallel`.
  - Prefer architectural clarity and operational robustness over broad provider abstraction.
  - Stay close enough to upstream DSPy to benefit from its ideas, while allowing intentional divergence when the minimal fork has different priorities.
  
@@ -64,16 +64,22 @@ This repository is being maintained as a deliberately minimal, robust DSPy fork.
  - `BaseLM` is the abstraction boundary for language models in this fork.
  - `dspy.LM` should not depend on LiteLLM in this fork.
  - The current LM transport is a direct OpenAI-compatible client implementation, with OpenRouter supported through its OpenAI-compatible API.
+- `dspy.LM` in this fork intentionally supports only chat-style and Responses-style OpenAI-compatible APIs, not legacy text-completion mode.
  - We preserve the existing DSPy programming model wherever possible instead of introducing a new LM interface just for the fork.
  - `dspy.Signature` plus `dspy.InputField` / `dspy.OutputField` are first-class stable authoring contracts in this fork.
- - The intentionally supported top-level authoring surface is `dspy.Signature`, `dspy.InputField`, `dspy.OutputField`, `dspy.Predict`, `dspy.ChainOfThought`, `dspy.Parallel`, `dspy.RLM`, `dspy.GEPA`, and `dspy.LM`.
- - Support utilities such as `dspy.Evaluate`, `dspy.JSONAdapter`, `dspy.Teleprompter`, and `dspy.bootstrap_trace_data` may remain for compatibility or implementation needs, but they are not the product pillars of the fork.
+- The intentionally supported top-level authoring surface is `dspy.Signature`, `dspy.InputField`, `dspy.OutputField`, `dspy.Predict`, `dspy.ChainOfThought`, `dspy.ReAct`, `dspy.Parallel`, `dspy.RLM`, `dspy.GEPA`, and `dspy.LM`.
+- Support utilities such as `dspy.Evaluate`, `dspy.JSONAdapter`, and `dspy.bootstrap_trace_data` may remain for compatibility or implementation needs, but they are not the product pillars of the fork.
  - `dspy.ChainOfThought` is treated as lightweight compatibility sugar over `dspy.Predict`, not as a separate architectural pillar.
- - Upstream modules such as `ReAct`, `ProgramOfThought`, `CodeAct`, `BestOfN`, `Refine`, `MultiChainComparison`, `KNN`, and `majority` remain intentionally omitted unless a clear benchmarked need emerges in this fork.
+ - **`dspy.ReAct`** is a first-class supported module again in this fork (upstream `dspy/predict/react.py` semantics): a tool loop built from `dspy.Predict` plus `dspy.ChainOfThought` for the final extraction step. Pass plain callables or `Tool` instances; async tool execution uses `Tool.acall` when you call `dspy.ReAct.acall(...)`. Implementation imports concrete types (`ChatAdapter`, `Tool`, `Predict`, etc.) rather than relying on broad top-level `dspy` re-exports.
+ - **`Tool` and ReAct:** `dspy.Tool` is not a top-level re-export here; use `dspy.predict.Tool` (re-export of `dspy.adapters.types.Tool`) or import from `dspy.adapters.types`. Tool schemas depend on `pydantic` and `jsonschema`, both explicit dependencies in this fork.
+ - **GEPA + ReAct:** `GEPA.compile` discovers predictors via `named_predictors()`; a `dspy.ReAct` student exposes both inner predictors (`react` and `extract.predict`), so prompt optimization can target the agent loop and the extraction step separately.
+- Non-core helper surfaces such as module serialization helpers, async wrapper utilities, and legacy adapter convenience types may be intentionally omitted when they are not required for the supported surface.
+- Upstream modules such as `ProgramOfThought`, `CodeAct`, `BestOfN`, `Refine`, `MultiChainComparison`, `KNN`, and `majority` remain intentionally omitted unless a clear benchmarked need emerges in this fork.
  - Capability claims should be conservative. We only advertise native features when the backend path is stable enough to support them reliably.
  - Benchmark and smoke-test paths should favor fast, practical defaults. Larger-budget runs should be explicit rather than the default.
  - Warning spam and “non-blocking” runtime issues are still considered bugs if they degrade confidence in the system.
  - Internal runtime code should import concrete implementation types directly for dispatch and typing logic instead of depending on broad top-level `dspy` re-exports.
+- The default RLM sandbox path in this fork is intentionally narrow: typed `SUBMIT`, tool bridging, and large-variable injection are supported, while optional host file mounts, env passthrough, and sandbox network configuration are omitted unless reintroduced for a validated need.
  - GEPA integration is intentionally handled through the published `gepa[dspy]` package rather than by vendoring GEPA core into this fork.
  - The DSPy GEPA wrapper should track the API of the published GEPA package we actually pin, not unreleased kwargs seen on the upstream repository `main` branch.
  - Local GEPA adapter hardening is part of the fork’s intended behavior and should be preserved across upstream syncs. In particular:
@@ -94,11 +100,11 @@ This repository is being maintained as a deliberately minimal, robust DSPy fork.
  - In a multi-workspace or monorepo environment, `uv` commands should bind explicitly to the intended interpreter. In this repo, the most reliable local test path is `uv sync --dev --python .venv/bin/python --extra dev` followed by `uv run --python .venv/bin/python --module pytest ...`.
  - Standalone-clone behavior matters. Tests that rely on parent-workspace scripts or assets should skip cleanly when those files are absent instead of failing by assuming the monorepo layout.
  - Optional dependency groups are product claims. If integrations such as MCP, LangChain, Weaviate, Optuna, or alternate packaging flows are intentionally omitted from the slim build, their extras should be removed instead of left behind as stale metadata.
- - Release automation should reflect the real publishing policy. Validation-only tag flows and disabled docs publishing are preferable to carrying upstream TestPyPI, dual-package, or docs-subtree machinery on the active path when the fork does not use them.
+- Release automation should reflect the real publishing policy. Validation-only tag flows and disabled docs publishing are preferable to carrying upstream publishing or docs-subtree machinery on the active path when the fork does not use them.
  - README notes in this section should record durable operating truths, not temporary migration noise. Prefer decisions, constraints, and validated behavior over one-off implementation details.
  - **Upstream sync:** Prefer **frequent, small** merges from `upstream/main` over rare huge ones. After each merge, run the minimal test suite (`tests/minimal`). Concentrate fork-specific edits in as few files as practical so merges stay predictable.
  - **PyPI vs git:** The **`dspy`** distribution on PyPI is upstream’s. For this fork, **`pip install git+https://github.com/Emre-C/dspy-slim.git`** or a path/editable install is the canonical route. The tag workflow in this fork validates builds by default; the PyPI publish job remains intentionally gated off unless you deliberately adopt a fork-side publishing strategy.
- - **CI scope:** Continuous integration here runs **only** `tests/minimal` (see `.github/workflows/minimal_fork_tests.yml`). The upstream full test matrix is intentionally **not** run as-is (the old workflow file is kept under a non-workflow filename so upstream merges do not re-enable a failing full suite by accident).
+ - **CI scope:** Continuous integration here runs **only** `tests/minimal` (see `.github/workflows/minimal_fork_tests.yml`), including the offline synthetic RLM sandbox check when the monorepo layout and Deno are present. The upstream full test matrix is intentionally **not** run as-is (the old workflow file is kept under a non-workflow filename so upstream merges do not re-enable a failing full suite by accident).
  - **GitHub `main` vs local history:** If the fork’s remote `main` ever diverges from the slim tree you intend to publish (for example, right after creating the fork on GitHub), reconciling may require a **one-time** deliberate `git push --force-with-lease` once local `main` is the canonical minimal fork—then return to normal fast-forward pushes.
  - **Monorepo layout:** When this package lives inside the parent **`minimal_dspy`** workspace next to Korbex, shared scripts such as `gepa_rlm_squad.py` and `rlm_long_context_validation.py` live under the **parent** `scripts/` directory; paths below assume that layout. Consumers who clone **only** `dspy-slim` should copy or adapt those scripts locally if needed.
 
@@ -109,8 +115,9 @@ This repository is being maintained as a deliberately minimal, robust DSPy fork.
  | Remotes (`origin` = this fork, `upstream` = stanfordnlp), merge workflow | `FORK.md` |
  | One-command merge from upstream (run from parent `minimal_dspy/`) | `../scripts/sync_dspy_upstream.sh` (override directory with env `DSPY_SLIM` if needed) |
  | Minimal tests from parent workspace | `../run_minimal_tests.sh` |
+ | Full E2E (pytest + optional live API smoke) from parent workspace | `../scripts/run_e2e.sh` or `../scripts/e2e_runner.py`; add `--live` with `OPENROUTER_API_KEY` and Deno for GEPA+RLM API checks |
  | Minimal tests inside this repo only | `uv sync --dev --python .venv/bin/python --extra dev` then `uv run --python .venv/bin/python --module pytest tests/minimal -vv` |
- | Tag workflow behavior in this fork | `.github/workflows/build_and_release.yml` (builds and validates tags; publish remains gated) |
+| Tag workflow behavior in this fork | `.github/workflows/build_and_release.yml` (builds and validates tags; no fork-side publish step) |
  | Docs workflow behavior in this fork | `.github/workflows/docs-push.yml` (manual no-op; in-repo docs publishing intentionally disabled) |
 
  ### Current validated state
@@ -119,9 +126,11 @@ This repository is being maintained as a deliberately minimal, robust DSPy fork.
  - The SQuAD smoke-test script lives at `../scripts/gepa_rlm_squad.py` (relative to this folder when inside `minimal_dspy`) and is tuned for practical test runs instead of unnecessarily expensive defaults.
  - The long-context validation script lives at `../scripts/rlm_long_context_validation.py`.
  - The LM backend no longer depends on LiteLLM for `dspy.LM`.
+- The LM backend intentionally omits legacy text-completion mode and targets chat/responses APIs only.
  - The OpenRouter path is exercised through the OpenAI-compatible client path.
- - The top-level import surface asserted by `tests/minimal/test_imports.py` currently includes `dspy.Signature`, `dspy.InputField`, `dspy.OutputField`, `dspy.Predict`, `dspy.ChainOfThought`, `dspy.Parallel`, `dspy.RLM`, `dspy.GEPA`, and `dspy.LM`.
- - Intentionally omitted upstream modules such as `ReAct`, `ProgramOfThought`, `CodeAct`, `BestOfN`, `Refine`, `MultiChainComparison`, `KNN`, and `majority` are asserted to remain absent from the slim top-level surface.
+- The top-level import surface asserted by `tests/minimal/test_imports.py` currently includes `dspy.Signature`, `dspy.InputField`, `dspy.OutputField`, `dspy.Predict`, `dspy.ChainOfThought`, `dspy.ReAct`, `dspy.Parallel`, `dspy.RLM`, `dspy.GEPA`, and `dspy.LM`.
+- Intentionally omitted upstream modules such as `ProgramOfThought`, `CodeAct`, `BestOfN`, `Refine`, `MultiChainComparison`, `KNN`, and `majority` are asserted to remain absent from the slim top-level surface.
+- Non-core compatibility helpers such as `dspy.Teleprompter`, module save/load helpers, async wrapper utilities, and legacy `dspy.Code` / `dspy.Reasoning` adapter types are intentionally omitted.
  - `gepa[dspy]` is currently pinned to `0.1.1`.
  - The current DSPy GEPA wrapper exposes the published GEPA `0.1.1` surfaces we rely on directly, including:
   - `candidate_selection_strategy` values `pareto`, `current_best`, `epsilon_greedy`, and `top_k_pareto`,
@@ -132,7 +141,7 @@ This repository is being maintained as a deliberately minimal, robust DSPy fork.
  - The local GEPA adapter preserves DSPy-specific resilience behavior around missing reflective examples and score mismatch handling.
  - The local GEPA adapter forwards metric `subscores` into GEPA `objective_scores` when they are present.
  - `jsonschema` is an explicit dependency in this fork because DSPy imports it directly.
- - Focused minimal regression coverage exists for imports, callback dispatch, bootstrap trace, GEPA, RLM, parallel execution, metrics, evaluate, predict, and the parent-workspace SQuAD smoke-test wrapper.
+ - Focused minimal regression coverage exists for imports, callback dispatch, bootstrap trace, GEPA, RLM, parallel execution, metrics, evaluate, predict, the parent-workspace SQuAD smoke-test wrapper, and ReAct (`tests/minimal/test_react.py`: sync/async tool loop, context-window trajectory truncation, GEPA compile compatibility).
  - Adapter and tool callback dispatch is covered by `tests/minimal/test_callback_dispatch.py` so the runtime does not silently depend on omitted top-level exports such as `dspy.Adapter` or `dspy.Tool`.
  - The parent-workspace SQuAD smoke-test wrapper skips cleanly in standalone clones when the shared script is not present.
  - Package metadata no longer advertises optional extras for removed integrations such as MCP, LangChain, Weaviate, or Optuna.

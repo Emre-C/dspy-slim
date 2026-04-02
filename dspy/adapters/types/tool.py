@@ -10,8 +10,6 @@ from dspy.adapters.types.base_type import Type
 from dspy.dsp.utils.settings import settings
 from dspy.utils.callback import with_callbacks
 
-_TYPE_MAPPING = {"string": str, "integer": int, "number": float, "boolean": bool, "array": list, "object": dict}
-
 
 class Tool(Type):
     """Tool class.
@@ -194,20 +192,6 @@ class Tool(Type):
             # We should allow calling a sync tool in the async path.
             return result
 
-    @classmethod
-    def from_mcp_tool(cls, session: Any, tool: Any) -> "Tool":
-        """Not available in this minimal build (``dspy.utils.mcp`` removed)."""
-        raise ImportError(
-            "MCP tool conversion requires the full DSPy install; dspy.utils.mcp is omitted in this build."
-        )
-
-    @classmethod
-    def from_langchain(cls, tool: Any) -> "Tool":
-        """Not available in this minimal build (``dspy.utils.langchain_tool`` removed)."""
-        raise ImportError(
-            "LangChain tool conversion requires the full DSPy install; dspy.utils.langchain_tool is omitted in this build."
-        )
-
     def __repr__(self):
         return f"Tool(name={self.name}, desc={self.desc}, args={self.args})"
 
@@ -230,51 +214,6 @@ class ToolCalls(Type):
                     "arguments": self.args,
                 },
             }
-
-        def execute(self, functions: dict[str, Any] | list[Tool] | None = None) -> Any:
-            """Execute this individual tool call and return its result.
-
-            Args:
-                functions: Functions to search for the tool. Can be:
-                          - Dict mapping tool names to functions: {"tool_name": function}
-                          - List of Tool objects: [Tool(function), ...]
-                          - None: Will search in caller's locals and globals (automatic lookup)
-
-            Returns:
-                The result from executing this tool call.
-
-            Raises:
-                ValueError: If the tool function cannot be found.
-                Exception: Any exception raised by the tool function.
-            """
-            func = None
-
-            if functions is None:
-                # Automatic lookup in caller's globals and locals
-                frame = inspect.currentframe().f_back
-                try:
-                    caller_globals = frame.f_globals
-                    caller_locals = frame.f_locals
-                    func = caller_locals.get(self.name) or caller_globals.get(self.name)
-                finally:
-                    del frame
-
-            elif isinstance(functions, dict):
-                func = functions.get(self.name)
-            elif isinstance(functions, list):
-                for tool in functions:
-                    if tool.name == self.name:
-                        func = tool.func
-                        break
-
-            if func is None:
-                raise ValueError(f"Tool function '{self.name}' not found. Please pass the tool functions to the `execute` method.")
-
-            try:
-                args = self.args or {}
-                return func(**args)
-            except Exception as e:
-                raise RuntimeError(f"Error executing tool '{self.name}': {e}") from e
 
     tool_calls: list[ToolCall]
 
@@ -367,35 +306,3 @@ def _resolve_json_schema_reference(schema: dict) -> dict:
     # Remove the $defs key as it's no longer needed
     resolved_schema.pop("$defs", None)
     return resolved_schema
-
-
-def convert_input_schema_to_tool_args(
-    schema: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Type], dict[str, str]]:
-    """Convert an input json schema to tool arguments compatible with DSPy Tool.
-
-    Args:
-        schema: An input json schema describing the tool's input parameters
-
-    Returns:
-        A tuple of (args, arg_types, arg_desc) for DSPy Tool definition.
-    """
-    args, arg_types, arg_desc = {}, {}, {}
-    properties = schema.get("properties", None)
-    if properties is None:
-        return args, arg_types, arg_desc
-
-    required = schema.get("required", [])
-
-    defs = schema.get("$defs", {})
-
-    for name, prop in properties.items():
-        if len(defs) > 0:
-            prop = _resolve_json_schema_reference({"$defs": defs, **prop})
-        args[name] = prop
-        arg_types[name] = _TYPE_MAPPING.get(prop.get("type"), Any)
-        arg_desc[name] = prop.get("description", "No description provided.")
-        if name in required:
-            arg_desc[name] += " (Required)"
-
-    return args, arg_types, arg_desc

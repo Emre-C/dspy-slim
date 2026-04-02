@@ -154,7 +154,6 @@ class BaseLM:
 
         - [OpenAI response format](https://platform.openai.com/docs/api-reference/responses/object)
         - [OpenAI chat completion format](https://platform.openai.com/docs/api-reference/chat/object)
-        - [OpenAI text completion format](https://platform.openai.com/docs/api-reference/completions/object)
 
         Raises:
             dspy.ContextWindowExceededError: When the request fails because the
@@ -178,7 +177,6 @@ class BaseLM:
 
         - [OpenAI response format](https://platform.openai.com/docs/api-reference/responses/object)
         - [OpenAI chat completion format](https://platform.openai.com/docs/api-reference/chat/object)
-        - [OpenAI text completion format](https://platform.openai.com/docs/api-reference/completions/object)
 
         Raises:
             dspy.ContextWindowExceededError: When the request fails because the
@@ -189,10 +187,6 @@ class BaseLM:
                 re-raising it as `dspy.ContextWindowExceededError`.
         """
         raise NotImplementedError("Subclasses must implement this method.")
-
-    def dump_state(self):
-        filtered_kwargs = {k: v for k, v in self.kwargs.items() if k != "api_key"}
-        return {"model": self.model, "model_type": self.model_type, "cache": self.cache} | filtered_kwargs
 
     def copy(self, **kwargs):
         """Returns a copy of the language model with possibly updated parameters.
@@ -265,9 +259,6 @@ class BaseLM:
             output = {}
             output["text"] = c.message.content if hasattr(c, "message") else c["text"]
 
-            if hasattr(c, "message") and hasattr(c.message, "reasoning_content") and c.message.reasoning_content:
-                output["reasoning_content"] = c.message.reasoning_content
-
             if merged_kwargs.get("logprobs"):
                 output["logprobs"] = c.logprobs if hasattr(c, "logprobs") else c["logprobs"]
             if hasattr(c, "message") and getattr(c.message, "tool_calls", None):
@@ -314,7 +305,6 @@ class BaseLM:
         """
         text_outputs = []
         tool_calls = []
-        reasoning_contents = []
 
         for output_item in response.output:
             output_item_type = output_item.type
@@ -323,21 +313,12 @@ class BaseLM:
                     text_outputs.append(content_item.text)
             elif output_item_type == "function_call":
                 tool_calls.append(dict(output_item))
-            elif output_item_type == "reasoning":
-                if getattr(output_item, "content", None) and len(output_item.content) > 0:
-                    for content_item in output_item.content:
-                        reasoning_contents.append(content_item.text)
-                elif getattr(output_item, "summary", None) and len(output_item.summary) > 0:
-                    for summary_item in output_item.summary:
-                        reasoning_contents.append(summary_item.text)
 
         result = {}
         if len(text_outputs) > 0:
             result["text"] = "".join(text_outputs)
         if len(tool_calls) > 0:
             result["tool_calls"] = tool_calls
-        if len(reasoning_contents) > 0:
-            result["reasoning_content"] = "".join(reasoning_contents)
         # All `response.output` items map to one answer, so we return a list of size 1.
         return [result]
 

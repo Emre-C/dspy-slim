@@ -1,16 +1,5 @@
 import copy
 import logging
-from collections import deque
-from collections.abc import Generator
-from pathlib import Path
-
-import orjson
-
-from dspy.utils.saving import get_dependency_versions
-
-# NOTE: Note: It's important (temporary decision) to maintain named_parameters that's different in behavior from
-# named_sub_modules for the time being.
-
 
 logger = logging.getLogger(__name__)
 
@@ -65,44 +54,6 @@ class BaseModule:
 
         return named_parameters
 
-    def named_sub_modules(self, type_=None, skip_compiled=False) -> Generator[tuple[str, "BaseModule"], None, None]:
-        """Find all sub-modules in the module, as well as their names.
-
-        Say `self.children[4]['key'].sub_module` is a sub-module. Then the name will be
-        `children[4]['key'].sub_module`. But if the sub-module is accessible at different
-        paths, only one of the paths will be returned.
-        """
-        if type_ is None:
-            type_ = BaseModule
-
-        queue = deque([("self", self)])
-        seen = {id(self)}
-
-        def add_to_queue(name, item):
-            if id(item) not in seen:
-                seen.add(id(item))
-                queue.append((name, item))
-
-        while queue:
-            name, item = queue.popleft()
-
-            if isinstance(item, type_):
-                yield name, item
-
-            if isinstance(item, BaseModule):
-                if skip_compiled and getattr(item, "_compiled", False):
-                    continue
-                for sub_name, sub_item in item.__dict__.items():
-                    add_to_queue(f"{name}.{sub_name}", sub_item)
-
-            elif isinstance(item, (list, tuple)):
-                for i, sub_item in enumerate(item):
-                    add_to_queue(f"{name}[{i}]", sub_item)
-
-            elif isinstance(item, dict):
-                for key, sub_item in item.items():
-                    add_to_queue(f"{name}[{key}]", sub_item)
-
     def parameters(self):
         return [param for _, param in self.named_parameters()]
 
@@ -151,52 +102,3 @@ class BaseModule:
             param.reset()
 
         return new_instance
-
-    def dump_state(self, json_mode=True):
-        return {name: param.dump_state(json_mode=json_mode) for name, param in self.named_parameters()}
-
-    def load_state(self, state, *, allow_unsafe_lm_state=False):
-        from dspy.predict.predict import Predict
-
-        for name, param in self.named_parameters():
-            if isinstance(param, Predict):
-                param.load_state(state[name], allow_unsafe_lm_state=allow_unsafe_lm_state)
-            else:
-                param.load_state(state[name])
-
-    def save(self, path):
-        """Save module state to a ``.json`` file (architecture is not preserved; reconstruct the program in code)."""
-        metadata: dict = {"dependency_versions": get_dependency_versions()}
-        path = Path(path)
-        if path.suffix != ".json":
-            raise ValueError(f"`path` must end with `.json`, got: {path}")
-        state = self.dump_state()
-        state["metadata"] = metadata
-        try:
-            with open(path, "wb") as f:
-                f.write(orjson.dumps(state, option=orjson.OPT_INDENT_2 | orjson.OPT_APPEND_NEWLINE))
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to save state to {path} with error: {e}. Your program may contain non-json-serializable objects."
-            ) from e
-
-    def load(self, path, *, allow_unsafe_lm_state=False):
-        """Load module state from a ``.json`` file written by :meth:`save`."""
-        path = Path(path)
-        if path.suffix != ".json":
-            raise ValueError(f"`path` must end with `.json`, got: {path}")
-        with open(path, "rb") as f:
-            state = orjson.loads(f.read())
-
-        dependency_versions = get_dependency_versions()
-        saved_dependency_versions = state["metadata"]["dependency_versions"]
-        for key, saved_version in saved_dependency_versions.items():
-            if dependency_versions[key] != saved_version:
-                logger.warning(
-                    f"There is a mismatch of {key} version between saved model and current environment. "
-                    f"You saved with `{key}=={saved_version}`, but now you have "
-                    f"`{key}=={dependency_versions[key]}`. This might cause errors or performance downgrade "
-                    "on the loaded model, please consider loading the model in the same environment as the "
-                    "saving environment."
-                )
-        self.load_state(state, allow_unsafe_lm_state=allow_unsafe_lm_state)

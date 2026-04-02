@@ -14,10 +14,7 @@ DEFAULT_CONFIG = dotdict(
     adapter=None,
     trace=[],
     callbacks=[],
-    async_max_workers=8,
     disable_history=False,
-    track_usage=False,
-    usage_tracker=None,
     caller_modules=None,
     provide_traceback=False,  # Whether to include traceback information in error logs.
     num_threads=8,  # Number of threads to use for parallel processing.
@@ -26,7 +23,6 @@ DEFAULT_CONFIG = dotdict(
     allow_tool_async_sync_conversion=False,
     max_history_size=10000,
     max_trace_size=10000,
-    warn_on_type_mismatch=True,  # Whether to log warnings when a module's input type doesn't match the signature type.
 )
 
 # Global base configuration and owner tracking
@@ -53,7 +49,7 @@ class Settings:
       2. It affects a global state, visible to all. As a result, user threads work, but they shouldn't be
          mixed with concurrent changes to dspy.configure from the "main" thread.
          (TODO: In the future, add warnings: if there are near-in-time user-thread reads followed by .configure calls.)
-      3. Any thread can use dspy.context. It propagates to child threads created with DSPy primitives: Parallel, asyncify, etc.
+      3. Any thread can use dspy.context. It propagates to child threads created with DSPy primitives such as Parallel.
     """
 
     _instance = None
@@ -169,8 +165,7 @@ class Settings:
         Args:
             **kwargs: Settings to update. Common keys include `lm` (a
                 `dspy.LM`), `adapter` (e.g. `dspy.JSONAdapter()`),
-                `callbacks`, `track_usage`, `async_max_workers`, and
-                `num_threads`.
+                `callbacks`, and `num_threads`.
 
         Examples:
             Set a default LM:
@@ -187,7 +182,6 @@ class Settings:
             dspy.configure(
                 lm=dspy.LM("anthropic/claude-sonnet-4-6"),
                 adapter=dspy.JSONAdapter(),
-                track_usage=True,
             )
             ```
 
@@ -218,7 +212,7 @@ class Settings:
 
         Args:
             **kwargs: Settings to override, such as `lm`, `adapter`,
-                `track_usage`, or `allow_tool_async_sync_conversion`.
+                or `allow_tool_async_sync_conversion`.
 
         Examples:
             Use a different LM for one call:

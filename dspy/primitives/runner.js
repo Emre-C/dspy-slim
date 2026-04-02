@@ -204,21 +204,6 @@ async function toolCallBridge(name, argsJson) {
 // Expose the bridge to Python
 pyodide.globals.set("_js_tool_call", toolCallBridge);
 
-try {
-  const env_vars = (Deno.args[0] ?? "").split(",").filter(Boolean);
-  for (const key of env_vars) {
-    const val = Deno.env.get(key);
-    if (val !== undefined) {
-      pyodide.runPython(`
-import os
-os.environ[${JSON.stringify(key)}] = ${JSON.stringify(val)}
-      `);
-    }
-  }
-} catch (e) {
-  console.error("Error setting environment variables in Pyodide:", e);
-}
-
 // Main loop using shared stdin reader
 while (true) {
   const { value: line, done } = await stdinReader.next();
@@ -243,44 +228,7 @@ while (true) {
   const params = input.params || {};
   const requestId = input.id; // May be undefined for notifications
 
-  // Handle notifications (no response expected)
-  if (method === "sync_file") {
-    try {
-      const virtualPath = params.virtual_path;
-      const hostPath = params.host_path || virtualPath;
-      await Deno.writeFile(hostPath, pyodide.FS.readFile(virtualPath));
-    } catch (e) { /* ignore sync errors */ }
-    continue;
-  }
-
   if (method === "shutdown") break;
-
-  // Handle requests (expect response)
-  if (method === "mount_file") {
-    const hostPath = params.host_path;
-    const virtualPath = params.virtual_path || hostPath;
-    try {
-      const contents = await Deno.readFile(hostPath);
-      const dirs = virtualPath.split('/').slice(1, -1);
-      let cur = '';
-      for (const d of dirs) {
-        cur += '/' + d;
-        // Check if directory exists before creating
-        try {
-          pyodide.FS.stat(cur);
-          // Directory exists, continue to next
-        } catch {
-          // Directory doesn't exist, create it
-          pyodide.FS.mkdir(cur);
-        }
-      }
-      pyodide.FS.writeFile(virtualPath, contents);
-      console.log(jsonrpcResult({ mounted: virtualPath }, requestId));
-    } catch (e) {
-      console.log(jsonrpcError(JSONRPC_APP_ERRORS.RuntimeError, `Failed to mount file: ${e.message}`, requestId));
-    }
-    continue;
-  }
 
   if (method === "register") {
     const toolNames = [];
