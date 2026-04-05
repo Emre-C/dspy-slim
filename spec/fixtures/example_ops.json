@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExampleOpsFixtures",
+  "description": "Behavioral tests for Example data container operations",
+  "cases": [
+    {
+      "id": "basic_construction",
+      "op": "create",
+      "kwargs": { "question": "What is 2+2?", "answer": "4" },
+      "expected_keys": ["question", "answer"],
+      "expected_len": 2
+    },
+    {
+      "id": "with_inputs_returns_copy",
+      "op": "with_inputs",
+      "kwargs": { "question": "Why?", "answer": "Because." },
+      "input_keys": ["question"],
+      "expected_inputs_keys": ["question"],
+      "expected_labels_keys": ["answer"]
+    },
+    {
+      "id": "inputs_preserves_input_keys_on_result",
+      "op": "inputs",
+      "kwargs": { "question": "Why?", "answer": "Because." },
+      "input_keys": ["question"],
+      "expected_result_has_input_keys": true
+    },
+    {
+      "id": "labels_has_no_input_keys",
+      "op": "labels",
+      "kwargs": { "question": "Why?", "answer": "Because." },
+      "input_keys": ["question"],
+      "expected_result_input_keys": null
+    },
+    {
+      "id": "get_existing_key",
+      "op": "get",
+      "kwargs": { "name": "Alice" },
+      "get_key": "name",
+      "expected": "Alice"
+    },
+    {
+      "id": "get_missing_key_default",
+      "op": "get_or",
+      "kwargs": { "name": "Alice" },
+      "get_key": "city",
+      "default": "Unknown",
+      "expected": "Unknown"
+    },
+    {
+      "id": "contains_true",
+      "op": "contains",
+      "kwargs": { "name": "Alice" },
+      "check_key": "name",
+      "expected": true
+    },
+    {
+      "id": "contains_false",
+      "op": "contains",
+      "kwargs": { "name": "Alice" },
+      "check_key": "city",
+      "expected": false
+    },
+    {
+      "id": "len_excludes_dspy_prefix",
+      "op": "len",
+      "kwargs": { "question": "Why?", "dspy_internal": "x" },
+      "expected": 1
+    },
+    {
+      "id": "copy_with_override",
+      "op": "copy",
+      "kwargs": { "question": "Why?", "answer": "Because." },
+      "overrides": { "answer": "No reason." },
+      "expected_store": { "question": "Why?", "answer": "No reason." }
+    },
+    {
+      "id": "without_removes_keys",
+      "op": "without",
+      "kwargs": { "question": "Why?", "answer": "Because.", "source": "web" },
+      "remove_keys": ["source"],
+      "expected_keys": ["question", "answer"]
+    },
+    {
+      "id": "to_dict",
+      "op": "to_dict",
+      "kwargs": { "question": "Why?", "answer": "Because." },
+      "expected": { "question": "Why?", "answer": "Because." }
+    },
+    {
+      "id": "equality",
+      "op": "equals",
+      "a": { "x": 1, "y": 2 },
+      "b": { "x": 1, "y": 2 },
+      "expected": true
+    },
+    {
+      "id": "inequality",
+      "op": "equals",
+      "a": { "x": 1 },
+      "b": { "x": 2 },
+      "expected": false
+    },
+    {
+      "id": "inputs_without_with_inputs_errors",
+      "op": "inputs_error",
+      "kwargs": { "question": "Why?" },
+      "expected_error": "Inputs have not been set"
+    }
+  ]
+}

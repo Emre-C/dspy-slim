@@ -2,6 +2,8 @@
 
 A deliberately minimal fork of [stanfordnlp/dspy](https://github.com/stanfordnlp/dspy) — keeping only what matters for recursive/agentic workflows and prompt optimization.
 
+**~75% of the Python removed** — the entire codebase is under 10k lines. It fits comfortably in an LLM context window, which means AI coding tools can reason about and generate DSPy code far more reliably. The small surface also makes it practical to maintain ports to other languages like TypeScript and Rust.
+
 **Fork:** [github.com/Emre-C/dspy-slim](https://github.com/Emre-C/dspy-slim) · **Upstream:** [github.com/stanfordnlp/dspy](https://github.com/stanfordnlp/dspy) · **General DSPy docs:** [dspy.ai](https://dspy.ai)
 
 ## Installation

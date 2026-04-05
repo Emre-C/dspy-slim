@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ModuleTreeWalkFixtures",
+  "description": "Behavioral tests for named_parameters and named_predictors traversal",
+  "cases": [
+    {
+      "id": "single_predict",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "qa": { "type": "Predict", "signature": "question -> answer" }
+        }
+      },
+      "expected_named_parameters": [["qa", "Predict"]],
+      "expected_named_predictors": [["qa", "Predict"]]
+    },
+    {
+      "id": "nested_module",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "inner": {
+            "type": "Module",
+            "attrs": {
+              "qa": { "type": "Predict", "signature": "question -> answer" }
+            }
+          }
+        }
+      },
+      "expected_named_parameters": [["inner.qa", "Predict"]],
+      "expected_named_predictors": [["inner.qa", "Predict"]]
+    },
+    {
+      "id": "compiled_submodule_frozen",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "inner": {
+            "type": "Module",
+            "_compiled": true,
+            "attrs": {
+              "qa": { "type": "Predict", "signature": "question -> answer" }
+            }
+          }
+        }
+      },
+      "expected_named_parameters": [],
+      "expected_named_predictors": []
+    },
+    {
+      "id": "list_of_predictors",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "predictors_list": [
+            { "type": "Predict", "signature": "q -> a" },
+            { "type": "Predict", "signature": "x -> y" }
+          ]
+        }
+      },
+      "expected_named_parameters": [
+        ["predictors_list[0]", "Predict"],
+        ["predictors_list[1]", "Predict"]
+      ]
+    },
+    {
+      "id": "dict_of_predictors",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "predictors_dict": {
+            "qa": { "type": "Predict", "signature": "q -> a" },
+            "summary": { "type": "Predict", "signature": "text -> summary" }
+          }
+        }
+      },
+      "expected_named_parameters": [
+        ["predictors_dict['qa']", "Predict"],
+        ["predictors_dict['summary']", "Predict"]
+      ]
+    },
+    {
+      "id": "chain_of_thought_exposes_inner_predict",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "cot": {
+            "type": "ChainOfThought",
+            "attrs": {
+              "predict": { "type": "Predict", "signature": "reasoning, question -> answer" }
+            }
+          }
+        }
+      },
+      "expected_named_predictors": [["cot.predict", "Predict"]]
+    },
+    {
+      "id": "react_exposes_react_and_extract",
+      "structure": {
+        "type": "Module",
+        "attrs": {
+          "agent": {
+            "type": "ReAct",
+            "attrs": {
+              "react": { "type": "Predict" },
+              "extract": {
+                "type": "ChainOfThought",
+                "attrs": {
+                  "predict": { "type": "Predict" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expected_named_predictors": [
+        ["agent.react", "Predict"],
+        ["agent.extract.predict", "Predict"]
+      ]
+    },
+    {
+      "id": "deduplication_by_identity",
+      "structure": {
+        "type": "Module",
+        "comment": "same Predict instance assigned to two attrs",
+        "attrs": {
+          "a": { "type": "Predict", "signature": "q -> a", "id": "shared" },
+          "b": { "type": "Predict", "signature": "q -> a", "id": "shared" }
+        }
+      },
+      "expected_named_parameters_count": 1,
+      "comment": "visited set deduplicates by object identity"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SignatureParseFixtures",
+  "description": "Behavioral tests for signature string parsing",
+  "cases": [
+    {
+      "id": "basic_single_input_output",
+      "input": "question -> answer",
+      "expected": {
+        "inputs": [
+          { "name": "question", "type_tag": "str", "is_type_undefined": true }
+        ],
+        "outputs": [
+          { "name": "answer", "type_tag": "str", "is_type_undefined": true }
+        ]
+      }
+    },
+    {
+      "id": "multi_input_single_output",
+      "input": "question, context -> answer",
+      "expected": {
+        "inputs": [
+          { "name": "question", "type_tag": "str", "is_type_undefined": true },
+          { "name": "context", "type_tag": "str", "is_type_undefined": true }
+        ],
+        "outputs": [
+          { "name": "answer", "type_tag": "str", "is_type_undefined": true }
+        ]
+      }
+    },
+    {
+      "id": "multi_input_multi_output",
+      "input": "question, context -> answer, confidence",
+      "expected": {
+        "inputs": [
+          { "name": "question", "type_tag": "str", "is_type_undefined": true },
+          { "name": "context", "type_tag": "str", "is_type_undefined": true }
+        ],
+        "outputs": [
+          { "name": "answer", "type_tag": "str", "is_type_undefined": true },
+          { "name": "confidence", "type_tag": "str", "is_type_undefined": true }
+        ]
+      }
+    },
+    {
+      "id": "typed_fields",
+      "input": "question: str, count: int -> answer: str, score: float",
+      "expected": {
+        "inputs": [
+          { "name": "question", "type_tag": "str", "is_type_undefined": false },
+          { "name": "count", "type_tag": "int", "is_type_undefined": false }
+        ],
+        "outputs": [
+          { "name": "answer", "type_tag": "str", "is_type_undefined": false },
+          { "name": "score", "type_tag": "float", "is_type_undefined": false }
+        ]
+      }
+    },
+    {
+      "id": "bool_output",
+      "input": "claim -> verdict: bool",
+      "expected": {
+        "inputs": [
+          { "name": "claim", "type_tag": "str", "is_type_undefined": true }
+        ],
+        "outputs": [
+          { "name": "verdict", "type_tag": "bool", "is_type_undefined": false }
+        ]
+      }
+    },
+    {
+      "id": "list_type",
+      "input": "text -> keywords: list[str]",
+      "expected": {
+        "inputs": [
+          { "name": "text", "type_tag": "str", "is_type_undefined": true }
+        ],
+        "outputs": [
+          { "name": "keywords", "type_tag": "list", "is_type_undefined": false }
+        ]
+      }
+    },
+    {
+      "id": "error_no_arrow",
+      "input": "question, answer",
+      "expected_error": "must contain exactly one '->'"
+    },
+    {
+      "id": "error_double_arrow",
+      "input": "a -> b -> c",
+      "expected_error": "must contain exactly one '->'"
+    },
+    {
+      "id": "error_duplicate_field",
+      "input": "name -> name",
+      "expected_error": "distinct names"
+    }
+  ]
+}
