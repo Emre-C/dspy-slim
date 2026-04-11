@@ -257,7 +257,10 @@ class BaseLM:
         outputs = []
         for c in response.choices:
             output = {}
-            output["text"] = c.message.content if hasattr(c, "message") else c["text"]
+            if hasattr(c, "message"):
+                output["text"] = getattr(c.message, "content", "") or ""
+            else:
+                output["text"] = c["text"]
 
             if merged_kwargs.get("logprobs"):
                 output["logprobs"] = c.logprobs if hasattr(c, "logprobs") else c["logprobs"]

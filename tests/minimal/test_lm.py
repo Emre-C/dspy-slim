@@ -1,6 +1,9 @@
 import pydantic
+import pytest
 
 from dspy.clients import lm as lm_module
+from dspy.clients.base_lm import BaseLM
+from dspy.dsp.utils.utils import dotdict
 
 
 class NestedPayload(pydantic.BaseModel):
@@ -14,6 +17,11 @@ class ResponsePayload(pydantic.BaseModel):
 
 class OutputSchema(pydantic.BaseModel):
     answer: str
+
+
+class DummyLM(BaseLM):
+    def forward(self, prompt=None, messages=None, **kwargs):
+        raise NotImplementedError
 
 
 def test_normalize_openai_object_converts_nested_models_to_dotdict():
@@ -77,3 +85,21 @@ def test_context_window_detection_matches_provider_error_shapes():
             self.body = {"error": {"code": "context_length_exceeded", "message": "Context length exceeded."}}
 
     assert lm_module._looks_like_context_window_exceeded(FakeBadRequest()) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        dotdict(tool_calls=None),
+        dotdict(content=None, tool_calls=None),
+    ],
+)
+def test_process_completion_tolerates_missing_message_content(message):
+    lm = DummyLM("dummy")
+    response = dotdict(
+        choices=[dotdict(message=message, finish_reason="stop")],
+        usage=dotdict(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        model="dummy",
+    )
+
+    assert lm._process_completion(response, {}) == [""]

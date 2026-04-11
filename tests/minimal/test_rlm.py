@@ -7,6 +7,8 @@ Test organization:
 """
 
 from contextlib import contextmanager
+import json
+from pathlib import Path
 
 import pytest
 
@@ -16,7 +18,10 @@ from dspy.primitives.code_interpreter import CodeInterpreterError, FinalOutput
 from dspy.primitives.prediction import Prediction
 from dspy.primitives.python_interpreter import PythonInterpreter
 from dspy.primitives.repl_types import REPLEntry, REPLHistory, REPLVariable
+from tests.minimal.helpers.replay_lm import ReplayLM
 from tests.mock_interpreter import MockInterpreter
+
+_RLM_REPLAY_FIXTURE_PATH = Path(__file__).resolve().parents[3] / "spec" / "fixtures" / "rlm_replay.json"
 
 # ============================================================================
 # Test Helpers and Factories
@@ -74,6 +79,22 @@ def add_tool(a: int = 0, b: int = 0) -> str:
 def multiply_tool(a: int = 0, b: int = 0) -> str:
     """Multiply two numbers."""
     return str(a * b)
+
+
+def _load_shared_rlm_replay_cases() -> list[dict]:
+    return json.loads(_RLM_REPLAY_FIXTURE_PATH.read_text())["cases"]
+
+
+def _python_interpreter_response(raw: object):
+    if isinstance(raw, str):
+        return raw
+    if not isinstance(raw, dict):
+        raise TypeError(f"Unsupported interpreter response fixture: {raw!r}")
+    if "submit" in raw:
+        return FinalOutput(raw["submit"])
+    if "error" in raw:
+        return CodeInterpreterError(str(raw["error"]))
+    raise ValueError(f"Unsupported interpreter response fixture: {raw!r}")
 
 # ============================================================================
 # Unit Tests: MockInterpreter
@@ -664,3 +685,33 @@ class TestRLMDynamicSignature:
         assert "key_facts" in extract_sig.output_fields
         assert "confidence" in extract_sig.output_fields
 
+
+class TestSharedRLMReplayFixtures:
+    """Replay shared RLM scenarios through the Python port."""
+
+    @pytest.mark.parametrize("case", _load_shared_rlm_replay_cases(), ids=lambda case: str(case["id"]))
+    def test_shared_fixture(self, case):
+        import dspy
+
+        python_case = case["python"]
+        budget = case.get("budget") or {}
+        lm = ReplayLM(outputs=[json.dumps(output) for output in python_case["lm_outputs"]])
+        dspy.configure(lm=lm)
+
+        interpreter = MockInterpreter(
+            responses=[_python_interpreter_response(item) for item in python_case["interpreter_responses"]],
+        )
+        rlm = RLM(
+            case["signature"],
+            max_iterations=int(budget.get("max_iterations", 20)),
+            max_llm_calls=int(budget.get("max_llm_calls", 50)),
+            interpreter=interpreter,
+        )
+
+        result = rlm(**case["inputs"])
+        expected = case["expected"]
+
+        assert result.answer == expected["answer"]
+        assert result.final_reasoning == expected["python_final_reasoning"]
+        assert expected["python_output_contains"] in result.trajectory[0]["output"]
+        assert lm.exhausted

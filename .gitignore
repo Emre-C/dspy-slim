@@ -28,6 +28,12 @@ dist/
 .virtualenv/
 local/
 
+# Ephemeral scratch under the fork checkout
+tmp/
+
+# Local-only Python pin (pyenv/uv); `requires-python` in pyproject.toml is authoritative
+.python-version
+
 # Test / runtime artifacts
 *.log
 *.db
@@ -43,3 +49,6 @@ test_before_pypi/
 
 # Cache
 /checkpoints/
+
+# Internal design rationale — not for public consumption
+AGENTS.md
