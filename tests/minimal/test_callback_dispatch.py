@@ -32,7 +32,7 @@ def test_adapter_parse_callbacks_do_not_require_top_level_adapter_export():
     with dspy.context(callbacks=[callback]):
         parsed = adapter.parse(dspy.Signature("question -> answer"), '{"answer": "ok"}')
 
-    assert not hasattr(dspy, "Adapter")
+    assert hasattr(dspy, "Adapter")
     assert parsed == {"answer": "ok"}
     assert [event[0] for event in callback.events] == ["adapter_parse_start", "adapter_parse_end"]
 
@@ -44,6 +44,6 @@ def test_tool_callbacks_do_not_require_top_level_tool_export():
     with dspy.context(callbacks=[callback]):
         result = tool(value=1)
 
-    assert not hasattr(dspy, "Tool")
+    assert hasattr(dspy, "Tool")
     assert result == 2
     assert [event[0] for event in callback.events] == ["tool_start", "tool_end"]

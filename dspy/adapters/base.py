@@ -10,6 +10,7 @@ from dspy.clients.base_lm import BaseLM
 from dspy.signatures.signature import Signature
 from dspy.utils.callback import BaseCallback, with_callbacks
 from dspy.utils.exceptions import AdapterParseError
+from dspy.utils.lm_metadata import DSPY_LM_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +123,12 @@ class Adapter:
             tool_calls = None
             text = output
 
+            lm_meta = None
             if isinstance(output, dict):
                 text = output["text"]
                 output_logprobs = output.get("logprobs")
                 tool_calls = output.get("tool_calls")
+                lm_meta = output.get(DSPY_LM_METADATA_KEY)
 
             if text:
                 value = self.parse(processed_signature, text)
@@ -168,6 +171,9 @@ class Adapter:
 
             if output_logprobs:
                 value["logprobs"] = output_logprobs
+
+            if lm_meta is not None:
+                value[DSPY_LM_METADATA_KEY] = lm_meta
 
             values.append(value)
 

@@ -6,6 +6,7 @@ from functools import wraps
 from hashlib import sha256
 from typing import Any
 
+import cloudpickle
 import orjson
 import pydantic
 from cachetools import LRUCache
@@ -164,6 +165,28 @@ class Cache:
 
         with self._lock:
             self.memory_cache.clear()
+
+    def save_memory_cache(self, filepath: str) -> None:
+        if not self.enable_memory_cache:
+            return
+
+        with self._lock:
+            with open(filepath, "wb") as handle:
+                cloudpickle.dump(self.memory_cache, handle)
+
+    def load_memory_cache(self, filepath: str, allow_pickle: bool = False) -> None:
+        if not allow_pickle:
+            raise ValueError(
+                "Loading untrusted .pkl files can run arbitrary code, which may be dangerous. "
+                "Set `allow_pickle=True` only for trusted files."
+            )
+
+        if not self.enable_memory_cache:
+            return
+
+        with self._lock:
+            with open(filepath, "rb") as handle:
+                self.memory_cache = cloudpickle.load(handle)
 
 
 def request_cache(

@@ -1,19 +1,42 @@
 import logging
 import random
-from typing import Any
+from typing import Any, Literal, get_args, get_origin
 
+from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
+from typeguard import TypeCheckError, check_type
 
-from dspy.adapters.json_adapter import JSONAdapter
+from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.clients.base_lm import BaseLM
+from dspy.clients.lm import LM
 from dspy.dsp.utils.settings import settings
 from dspy.predict.parameter import Parameter
 from dspy.primitives.module import Module
 from dspy.primitives.prediction import Prediction
 from dspy.signatures.signature import Signature, ensure_signature
 from dspy.utils.callback import BaseCallback
+from dspy.utils.constants import IS_TYPE_UNDEFINED
 
 logger = logging.getLogger(__name__)
+
+UNSAFE_LM_STATE_KEYS = {"api_base", "base_url", "model_list"}
+
+
+def _sanitize_lm_state(lm_state: dict, allow_unsafe_lm_state: bool) -> dict:
+    if allow_unsafe_lm_state:
+        return lm_state
+
+    unsafe_keys = sorted(UNSAFE_LM_STATE_KEYS.intersection(lm_state))
+    if not unsafe_keys:
+        return lm_state
+
+    sanitized_lm_state = {key: value for key, value in lm_state.items() if key not in UNSAFE_LM_STATE_KEYS}
+    logger.warning(
+        "Ignoring unsafe LM config key(s) during state load: %s. "
+        "Pass allow_unsafe_lm_state=True to preserve these keys for trusted files.",
+        unsafe_keys,
+    )
+    return sanitized_lm_state
 
 
 class Predict(Module, Parameter):
@@ -43,6 +66,40 @@ class Predict(Module, Parameter):
         self.traces = []
         self.train = []
         self.demos = []
+
+    def dump_state(self, json_mode=True):
+        state_keys = ["traces", "train"]
+        state = {key: getattr(self, key) for key in state_keys}
+
+        state["demos"] = []
+        for demo in self.demos:
+            demo = demo.copy()
+            for field in demo:
+                demo[field] = serialize_object(demo[field])
+
+            if isinstance(demo, dict) or not json_mode:
+                state["demos"].append(demo)
+            else:
+                state["demos"].append(demo.toDict())
+
+        state["signature"] = self.signature.dump_state()
+        state["lm"] = self.lm.dump_state() if self.lm else None
+        return state
+
+    def load_state(self, state: dict, *, allow_unsafe_lm_state: bool = False) -> "Predict":
+        excluded_keys = ["signature", "extended_signature", "lm"]
+        for name, value in state.items():
+            if name not in excluded_keys:
+                setattr(self, name, value)
+
+        self.signature = self.signature.load_state(state["signature"])
+        sanitized_lm_state = _sanitize_lm_state(state["lm"], allow_unsafe_lm_state) if state["lm"] else None
+        self.lm = LM(**sanitized_lm_state) if sanitized_lm_state else None
+
+        if "extended_signature" in state:
+            raise NotImplementedError("Loading extended_signature is no longer supported in DSPy 2.6+")
+
+        return self
 
     def _get_positional_args_error_message(self):
         input_fields = list(self.signature.input_fields.keys())
@@ -113,15 +170,32 @@ class Predict(Module, Parameter):
             if k not in kwargs and v.default is not PydanticUndefined:
                 kwargs[k] = v.default
 
-        # Check and warn for extra fields not in signature
-        extra_fields = [k for k in kwargs if k not in signature.input_fields]
+        extra_fields = [key for key in kwargs if key not in signature.input_fields]
         if extra_fields:
             logger.warning(
-                "Input contains fields not in signature. These fields will be ignored: %s. "
-                "Expected fields: %s.",
+                "Input contains fields not in signature. These fields will be ignored: %s. Expected fields: %s.",
                 extra_fields,
                 list(signature.input_fields.keys()),
             )
+
+        if settings.warn_on_type_mismatch:
+            for field_name, field_info in signature.input_fields.items():
+                if field_name not in kwargs:
+                    continue
+
+                value = kwargs[field_name]
+                expected_type: type = field_info.annotation
+                if value is None or field_info.json_schema_extra.get(IS_TYPE_UNDEFINED, False):
+                    continue
+
+                if not _is_value_compatible_with_type(value, expected_type):
+                    logger.warning(
+                        "Type mismatch for field '%s': expected %s based on given Signature, but the provided value "
+                        "is incompatible: %s.",
+                        field_name,
+                        _get_type_name(expected_type),
+                        value,
+                    )
 
         if not all(k in kwargs for k in signature.input_fields):
             present = [k for k in signature.input_fields if k in kwargs]
@@ -142,19 +216,36 @@ class Predict(Module, Parameter):
             trace.append((self, {**kwargs}, pred))
         return pred
 
+    def _should_stream(self):
+        stream_listeners = settings.stream_listeners or []
+        should_stream = settings.send_stream is not None
+        if should_stream and len(stream_listeners) > 0:
+            should_stream = any(stream_listener.predict == self for stream_listener in stream_listeners)
+        return should_stream
+
     def forward(self, **kwargs):
         lm, config, signature, demos, kwargs = self._forward_preprocess(**kwargs)
 
-        adapter = settings.adapter or JSONAdapter()
-        completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        adapter = settings.adapter or ChatAdapter()
+        if self._should_stream():
+            with settings.context(caller_predict=self):
+                completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        else:
+            with settings.context(send_stream=None):
+                completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
 
         return self._forward_postprocess(completions, signature, **kwargs)
 
     async def aforward(self, **kwargs):
         lm, config, signature, demos, kwargs = self._forward_preprocess(**kwargs)
 
-        adapter = settings.adapter or JSONAdapter()
-        completions = await adapter.acall(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        adapter = settings.adapter or ChatAdapter()
+        if self._should_stream():
+            with settings.context(caller_predict=self):
+                completions = await adapter.acall(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+        else:
+            with settings.context(send_stream=None):
+                completions = await adapter.acall(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
 
         return self._forward_postprocess(completions, signature, **kwargs)
 
@@ -166,3 +257,47 @@ class Predict(Module, Parameter):
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.signature})"
+
+
+def _get_type_name(type_annotation) -> str:
+    origin = get_origin(type_annotation)
+    args = get_args(type_annotation)
+
+    if origin is None:
+        if hasattr(type_annotation, "__name__"):
+            return type_annotation.__name__
+        return str(type_annotation)
+
+    if origin is Literal:
+        literal_values = ", ".join(repr(arg) for arg in args)
+        return f"Literal[{literal_values}]"
+
+    if args:
+        args_str = ", ".join("..." if arg is ... else _get_type_name(arg) for arg in args)
+        origin_name = getattr(origin, "__name__", str(origin))
+        return f"{origin_name}[{args_str}]"
+
+    return getattr(origin, "__name__", str(origin))
+
+
+def _is_value_compatible_with_type(value: Any, expected: type) -> bool:
+    try:
+        if expected is str and isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return True
+
+        check_type(value, expected)
+        return True
+    except TypeCheckError:
+        return False
+
+
+def serialize_object(obj):
+    if isinstance(obj, BaseModel):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, list):
+        return [serialize_object(item) for item in obj]
+    if isinstance(obj, tuple):
+        return tuple(serialize_object(item) for item in obj)
+    if isinstance(obj, dict):
+        return {key: serialize_object(value) for key, value in obj.items()}
+    return obj

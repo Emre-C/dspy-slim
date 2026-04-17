@@ -1,10 +1,10 @@
 import asyncio
 from typing import Any
 
-import pytest
 from pydantic import BaseModel
 
 import dspy
+from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.utils.exceptions import ContextWindowExceededError
 from tests.minimal.helpers.dummies import DummyLM
 
@@ -63,7 +63,7 @@ def test_react_runs_sync_tool_loop_with_typed_args():
 
     react = dspy.ReAct(InvitationSignature, tools=[write_invitation_letter])
 
-    with dspy.context(lm=DummyLM(_invitation_answers())):
+    with dspy.context(lm=DummyLM(_invitation_answers(), adapter=ChatAdapter())):
         outputs = react(participant_name="Alice", event_info=_event_info())
 
     assert outputs.invitation_letter == "It's my honor to invite Alice to the Science Fair event on Friday."
@@ -95,7 +95,7 @@ def test_react_runs_async_tool_loop_with_typed_args():
     react = dspy.ReAct(InvitationSignature, tools=[write_invitation_letter])
 
     async def run():
-        with dspy.context(lm=DummyLM(_invitation_answers())):
+        with dspy.context(lm=DummyLM(_invitation_answers(), adapter=ChatAdapter())):
             return await react.acall(participant_name="Alice", event_info=_event_info())
 
     outputs = asyncio.run(run())

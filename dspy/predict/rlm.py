@@ -153,6 +153,7 @@ class RLM(Module):
         sub_lm: dspy.BaseLM | None = None,
         interpreter: CodeInterpreter | None = None,
         paper_instruction_appendix: str | None = None,
+        history_compaction_threshold: int = 8,
     ):
         """
         Args:
@@ -170,6 +171,11 @@ class RLM(Module):
             paper_instruction_appendix: Optional extra root instructions from the RLM paper
                   (Appendix C): ``"qwen_coder"`` (Qwen3-Coder-style batching / ~200k sub-call chars)
                   or ``"qwen_small"`` (~32k token limits + conservative batching). ``None`` adds none.
+            history_compaction_threshold: After this many REPL entries, older
+                  entries are compacted (reasoning stripped, output truncated)
+                  before being sent to the LM. Keeps the prompt from growing
+                  unboundedly so the model retains enough output budget for
+                  ``SUBMIT()``. Set to 0 to disable compaction.
         """
         super().__init__()
         self.signature = ensure_signature(signature)
@@ -180,6 +186,7 @@ class RLM(Module):
         self.sub_lm = sub_lm
         self._interpreter = interpreter
         self.paper_instruction_appendix = paper_instruction_appendix
+        self.history_compaction_threshold = history_compaction_threshold
         self._paper_action_instruction_suffix = self._resolve_paper_appendix(paper_instruction_appendix)
         self._user_tools = self._normalize_tools(tools)
         self._validate_tools(self._user_tools)
@@ -218,7 +225,7 @@ class RLM(Module):
             raise TypeError(
                 "tools must be a list, not a dict. "
                 "Change tools={'name': func} to tools=[func] "
-                "(tool names are inferred from function names, or use dspy.Tool(func, name='custom_name'))"
+                "(tool names are inferred from function names, or use Tool(func, name='custom_name') from dspy.adapters.types)"
             )
 
         def to_tool(func: Callable | Tool) -> Tool:
@@ -463,10 +470,11 @@ class RLM(Module):
         """Use extract module to get final output when max iterations reached."""
         logger.warning("RLM reached max iterations, using extract to get final output")
 
+        prompt_history = self._project_prompt_history(history, iteration=self.max_iterations, finalize_mode=True)
         variables_info = [variable.format() for variable in variables]
         extract_pred = self.extract(
             variables_info=variables_info,
-            repl_history=history,
+            repl_history=prompt_history,
         )
 
         return Prediction(
@@ -565,6 +573,54 @@ class RLM(Module):
             logger.info(REPLEntry.format_output(output, self.max_output_chars))
         return history.append(reasoning=pred.reasoning, code=code, output=output)
 
+    # =========================================================================
+    # Prompt projection (explore vs finalize vs extract)
+    # =========================================================================
+
+    def _project_prompt_history(
+        self,
+        history: REPLHistory,
+        iteration: int,
+        *,
+        finalize_mode: bool,
+    ) -> REPLHistory:
+        """Build REPL history for the action LM prompt (canonical history unchanged).
+
+        During normal exploration, keeps 2-5 recent entries (scaled by remaining
+        iterations).  In finalize mode or extract fallback, keeps 5-8 entries so
+        the LM has enough evidence to produce a structured answer.
+        """
+        if self.history_compaction_threshold <= 0:
+            return history
+        if len(history) < self.history_compaction_threshold and not finalize_mode:
+            return history
+        remaining = self.max_iterations - iteration
+        if finalize_mode:
+            keep = max(5, min(8, max(remaining, len(history))))
+        else:
+            keep = max(2, min(5, max(remaining, 1)))
+        return history.compact(keep_last=keep)
+
+    def _get_iteration_label(self, iteration: int, *, finalize_mode: bool) -> str:
+        """Format iteration counter; urgency increases near the end and in finalize mode."""
+        label = f"{iteration + 1}/{self.max_iterations}"
+        remaining = self.max_iterations - iteration - 1
+        if remaining == 0:
+            label += (
+                " \u2014 FINAL ITERATION. You MUST call SUBMIT() now with your best answer. "
+                "Do NOT write exploratory code."
+            )
+        elif finalize_mode:
+            label += (
+                " \u2014 FINALIZATION MODE: Your last model output may have hit max_tokens. "
+                "Call SUBMIT() with your best structured answer now; avoid long exploratory code."
+            )
+        elif remaining == 1:
+            label += " \u2014 NEXT-TO-LAST iteration. Prepare to call SUBMIT() with your answer."
+        elif remaining == 2:
+            label += " \u2014 Running low on iterations. Wrap up and call SUBMIT() soon."
+        return label
+
     def _execute_code(
         self,
         repl: CodeInterpreter,
@@ -585,14 +641,30 @@ class RLM(Module):
         iteration: int,
         input_args: dict[str, Any],
         output_field_names: list[str],
-    ) -> Prediction | REPLHistory:
-        """Execute one iteration. Returns Prediction if done, else updated REPLHistory."""
+        *,
+        finalize_mode: bool,
+    ) -> tuple[Prediction | REPLHistory, bool]:
+        """Execute one iteration. Returns (result, finalize_next).
+
+        ``finalize_next`` is True when the action LM call was truncated or we should
+        force finalization on the next iteration.
+        """
         variables_info = [variable.format() for variable in variables]
+        prompt_history = self._project_prompt_history(history, iteration, finalize_mode=finalize_mode)
         action = self.generate_action(
             variables_info=variables_info,
-            repl_history=history,
-            iteration=f"{iteration + 1}/{self.max_iterations}",
+            repl_history=prompt_history,
+            iteration=self._get_iteration_label(iteration, finalize_mode=finalize_mode),
         )
+        finalize_next = bool(finalize_mode)
+        meta = action.lm_metadata
+        if meta and meta.get("truncated"):
+            finalize_next = True
+            logger.warning(
+                "RLM action LM output was truncated (finish_reason=%s). "
+                "Next iteration will use finalization-oriented prompting.",
+                meta.get("finish_reason"),
+            )
         if self.verbose:
             logger.info(
                 f"RLM iteration {iteration + 1}/{self.max_iterations}\n"
@@ -604,9 +676,9 @@ class RLM(Module):
         except SyntaxError as e:
             code = action.code
             result = f"[Error] {e}"
-            return self._process_execution_result(action, code, result, history, output_field_names)
+            return self._process_execution_result(action, code, result, history, output_field_names), finalize_next
         result = self._execute_code(repl, code, input_args)
-        return self._process_execution_result(action, code, result, history, output_field_names)
+        return self._process_execution_result(action, code, result, history, output_field_names), finalize_next
 
     # =========================================================================
     # Public Interface
@@ -631,11 +703,19 @@ class RLM(Module):
         variables = self._build_variables(**input_args)
 
         with self._interpreter_context(execution_tools) as repl:
-            history: REPLHistory = REPLHistory(max_output_chars=self.max_output_chars)
+            history = REPLHistory(max_output_chars=self.max_output_chars)
+            finalize_next = False
 
             for iteration in range(self.max_iterations):
-                result: Prediction | REPLHistory = self._execute_iteration(
-                    repl, variables, history, iteration, input_args, output_field_names
+                finalize_mode = finalize_next or (self.max_iterations - iteration - 1) <= 2
+                result, finalize_next = self._execute_iteration(
+                    repl,
+                    variables,
+                    history,
+                    iteration,
+                    input_args,
+                    output_field_names,
+                    finalize_mode=finalize_mode,
                 )
                 if isinstance(result, Prediction):
                     return result
@@ -653,10 +733,11 @@ class RLM(Module):
         """Async version: Use extract module when max iterations reached."""
         logger.warning("RLM reached max iterations, using extract to get final output")
 
+        prompt_history = self._project_prompt_history(history, iteration=self.max_iterations, finalize_mode=True)
         variables_info = [variable.format() for variable in variables]
         extract_pred = await self.extract.acall(
             variables_info=variables_info,
-            repl_history=history,
+            repl_history=prompt_history,
         )
 
         return Prediction(
@@ -673,14 +754,26 @@ class RLM(Module):
         iteration: int,
         input_args: dict[str, Any],
         output_field_names: list[str],
-    ) -> Prediction | REPLHistory:
+        *,
+        finalize_mode: bool,
+    ) -> tuple[Prediction | REPLHistory, bool]:
         """Async version: Execute one iteration."""
         variables_info = [variable.format() for variable in variables]
+        prompt_history = self._project_prompt_history(history, iteration, finalize_mode=finalize_mode)
         pred = await self.generate_action.acall(
             variables_info=variables_info,
-            repl_history=history,
-            iteration=f"{iteration + 1}/{self.max_iterations}",
+            repl_history=prompt_history,
+            iteration=self._get_iteration_label(iteration, finalize_mode=finalize_mode),
         )
+        finalize_next = bool(finalize_mode)
+        meta = pred.lm_metadata
+        if meta and meta.get("truncated"):
+            finalize_next = True
+            logger.warning(
+                "RLM action LM output was truncated (finish_reason=%s). "
+                "Next iteration will use finalization-oriented prompting.",
+                meta.get("finish_reason"),
+            )
         if self.verbose:
             logger.info(
                 f"RLM iteration {iteration + 1}/{self.max_iterations}\n"
@@ -692,9 +785,9 @@ class RLM(Module):
         except SyntaxError as e:
             code = pred.code
             result = f"[Error] {e}"
-            return self._process_execution_result(pred, code, result, history, output_field_names)
+            return self._process_execution_result(pred, code, result, history, output_field_names), finalize_next
         result = self._execute_code(repl, code, input_args)
-        return self._process_execution_result(pred, code, result, history, output_field_names)
+        return self._process_execution_result(pred, code, result, history, output_field_names), finalize_next
 
     async def aforward(self, **input_args) -> Prediction:
         """Async version of forward(). Execute RLM to produce outputs.
@@ -716,10 +809,18 @@ class RLM(Module):
 
         with self._interpreter_context(execution_tools) as repl:
             history = REPLHistory(max_output_chars=self.max_output_chars)
+            finalize_next = False
 
             for iteration in range(self.max_iterations):
-                result = await self._aexecute_iteration(
-                    repl, variables, history, iteration, input_args, output_field_names
+                finalize_mode = finalize_next or (self.max_iterations - iteration - 1) <= 2
+                result, finalize_next = await self._aexecute_iteration(
+                    repl,
+                    variables,
+                    history,
+                    iteration,
+                    input_args,
+                    output_field_names,
+                    finalize_mode=finalize_mode,
                 )
                 if isinstance(result, Prediction):
                     return result

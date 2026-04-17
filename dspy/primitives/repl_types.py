@@ -150,6 +150,36 @@ class REPLHistory(pydantic.BaseModel):
         new_entry = REPLEntry(reasoning=reasoning, code=code, output=output)
         return REPLHistory(entries=list(self.entries) + [new_entry], max_output_chars=self.max_output_chars)
 
+    def compact(self, keep_last: int = 3, summary_output_chars: int = 200) -> "REPLHistory":
+        """Return a compacted copy for prompt inclusion in late iterations.
+
+        Keeps the last ``keep_last`` entries in full. Older entries are
+        summarized: reasoning is dropped and output is truncated to
+        ``summary_output_chars`` characters so the LM prompt stays small
+        enough to leave room for the final structured answer.
+        """
+        if len(self.entries) <= keep_last:
+            return self
+
+        cutoff = len(self.entries) - keep_last
+        compacted: list[REPLEntry] = []
+        for i, entry in enumerate(self.entries):
+            if i < cutoff:
+                output = entry.output
+                if len(output) > summary_output_chars:
+                    half = summary_output_chars // 2
+                    omitted = len(entry.output) - summary_output_chars
+                    output = (
+                        output[:half]
+                        + f"\n\n... ({omitted:,} characters omitted) ...\n\n"
+                        + output[-half:]
+                    )
+                compacted.append(REPLEntry(reasoning="", code=entry.code, output=output))
+            else:
+                compacted.append(entry)
+
+        return REPLHistory(entries=compacted, max_output_chars=self.max_output_chars)
+
     def __len__(self) -> int:
         return len(self.entries)
 

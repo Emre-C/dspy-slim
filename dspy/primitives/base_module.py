@@ -1,5 +1,12 @@
 import copy
 import logging
+from collections import deque
+from collections.abc import Generator
+from pathlib import Path
+
+import orjson
+
+from dspy.utils.saving import get_dependency_versions, get_pickle_module
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +51,7 @@ class BaseModule:
                     for sub_name, param in value.named_parameters():
                         add_parameter(f"{name}.{sub_name}", param)
 
-            elif isinstance(value, (list, tuple)):
+            elif isinstance(value, list | tuple):
                 for idx, item in enumerate(value):
                     add_parameter(f"{name}[{idx}]", item)
 
@@ -53,6 +60,39 @@ class BaseModule:
                     add_parameter(f"{name}['{key}']", item)
 
         return named_parameters
+
+    def named_sub_modules(self, type_=None, skip_compiled=False) -> Generator[tuple[str, "BaseModule"], None, None]:
+        """Yield sub-modules breadth-first with their access paths."""
+        if type_ is None:
+            type_ = BaseModule
+
+        queue = deque([("self", self)])
+        seen = {id(self)}
+
+        def add_to_queue(name, item):
+            if id(item) not in seen:
+                seen.add(id(item))
+                queue.append((name, item))
+
+        while queue:
+            name, item = queue.popleft()
+
+            if isinstance(item, type_):
+                yield name, item
+
+            if isinstance(item, BaseModule):
+                if skip_compiled and getattr(item, "_compiled", False):
+                    continue
+                for sub_name, sub_item in item.__dict__.items():
+                    add_to_queue(f"{name}.{sub_name}", sub_item)
+
+            elif isinstance(item, list | tuple):
+                for index, sub_item in enumerate(item):
+                    add_to_queue(f"{name}[{index}]", sub_item)
+
+            elif isinstance(item, dict):
+                for key, sub_item in item.items():
+                    add_to_queue(f"{name}[{key}]", sub_item)
 
     def parameters(self):
         return [param for _, param in self.named_parameters()]
@@ -102,3 +142,85 @@ class BaseModule:
             param.reset()
 
         return new_instance
+
+    def dump_state(self, json_mode=True):
+        return {name: param.dump_state(json_mode=json_mode) for name, param in self.named_parameters()}
+
+    def load_state(self, state, *, allow_unsafe_lm_state=False):
+        from dspy.predict.predict import Predict
+
+        for name, param in self.named_parameters():
+            if isinstance(param, Predict):
+                param.load_state(state[name], allow_unsafe_lm_state=allow_unsafe_lm_state)
+            else:
+                param.load_state(state[name])
+
+    def save(self, path, save_program=False, modules_to_serialize=None):
+        metadata = {"dependency_versions": get_dependency_versions()}
+        path_obj = Path(path)
+        pickle_module = get_pickle_module()
+
+        if save_program:
+            if path_obj.suffix:
+                raise ValueError(
+                    f"`path` must point to a directory without a suffix when `save_program=True`, got: {path_obj}"
+                )
+            if path_obj.exists() and not path_obj.is_dir():
+                raise NotADirectoryError(f"The path '{path_obj}' exists but is not a directory.")
+            if not path_obj.exists():
+                path_obj.mkdir(parents=True)
+
+            if modules_to_serialize and hasattr(pickle_module, "register_pickle_by_value"):
+                for module in modules_to_serialize:
+                    pickle_module.register_pickle_by_value(module)
+
+            with open(path_obj / "program.pkl", "wb") as handle:
+                pickle_module.dump(self, handle)
+            with open(path_obj / "metadata.json", "wb") as handle:
+                handle.write(orjson.dumps(metadata, option=orjson.OPT_INDENT_2 | orjson.OPT_APPEND_NEWLINE))
+            return
+
+        if path_obj.suffix == ".json":
+            state = self.dump_state()
+            state["metadata"] = metadata
+            with open(path_obj, "wb") as handle:
+                handle.write(orjson.dumps(state, option=orjson.OPT_INDENT_2 | orjson.OPT_APPEND_NEWLINE))
+            return
+
+        if path_obj.suffix == ".pkl":
+            state = self.dump_state(json_mode=False)
+            state["metadata"] = metadata
+            with open(path_obj, "wb") as handle:
+                pickle_module.dump(state, handle)
+            return
+
+        raise ValueError(f"`path` must end with `.json` or `.pkl`, got: {path_obj}")
+
+    def load(self, path, allow_pickle=False, allow_unsafe_lm_state=False):
+        path_obj = Path(path)
+        pickle_module = get_pickle_module()
+
+        if path_obj.suffix == ".json":
+            with open(path_obj, "rb") as handle:
+                state = orjson.loads(handle.read())
+        elif path_obj.suffix == ".pkl":
+            if not allow_pickle:
+                raise ValueError(
+                    "Loading .pkl files can run arbitrary code. Set `allow_pickle=True` only for trusted files."
+                )
+            with open(path_obj, "rb") as handle:
+                state = pickle_module.load(handle)
+        else:
+            raise ValueError(f"`path` must end with `.json` or `.pkl`, got: {path_obj}")
+
+        dependency_versions = get_dependency_versions()
+        saved_dependency_versions = state["metadata"]["dependency_versions"]
+        for key, saved_version in saved_dependency_versions.items():
+            if dependency_versions.get(key) != saved_version:
+                logger.warning(
+                    "There is a mismatch of %s version between saved model and current environment. Saved with `%s`, current `%s`.",
+                    key,
+                    saved_version,
+                    dependency_versions.get(key),
+                )
+        self.load_state(state, allow_unsafe_lm_state=allow_unsafe_lm_state)

@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 
 import dspy
 from dspy.evaluate.evaluate import Evaluate
@@ -75,3 +76,22 @@ def test_evaluate_single_thread_runs_in_main_thread():
     assert result.score == 100.0
     assert all(t is threading.main_thread() for t in execution_threads)
 
+
+def test_evaluate_accepts_upstream_display_and_export_flags(capsys, tmp_path: Path):
+    dspy.configure(lm=DummyLM({"What is 1+1?": {"answer": "2"}}))
+    devset = [new_example("What is 1+1?", "2")]
+    program = Predict("question -> answer")
+    ev = Evaluate(
+        devset=devset,
+        metric=answer_exact_match,
+        display_progress=False,
+        display_table=True,
+        save_as_csv=str(tmp_path / "results.csv"),
+        save_as_json=str(tmp_path / "results.json"),
+    )
+
+    result = ev(program)
+    captured = capsys.readouterr()
+
+    assert result.score == 100.0
+    assert "intentionally omitted in dspy-slim's minimal Evaluate helper" in captured.err

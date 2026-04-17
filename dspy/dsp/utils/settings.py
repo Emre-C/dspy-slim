@@ -4,6 +4,9 @@ import copy
 import logging
 import threading
 from contextlib import contextmanager
+from typing import Any
+
+import cloudpickle
 
 from dspy.dsp.utils.utils import dotdict
 
@@ -12,10 +15,18 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = dotdict(
     lm=None,
     adapter=None,
+    rm=None,
+    branch_idx=0,
     trace=[],
     callbacks=[],
+    async_max_workers=8,
+    send_stream=None,
     disable_history=False,
+    track_usage=False,
+    usage_tracker=None,
+    caller_predict=None,
     caller_modules=None,
+    stream_listeners=[],
     provide_traceback=False,  # Whether to include traceback information in error logs.
     num_threads=8,  # Number of threads to use for parallel processing.
     max_errors=10,  # Maximum errors before halting operations.
@@ -23,6 +34,7 @@ DEFAULT_CONFIG = dotdict(
     allow_tool_async_sync_conversion=False,
     max_history_size=10000,
     max_trace_size=10000,
+    warn_on_type_mismatch=True,
 )
 
 # Global base configuration and owner tracking
@@ -33,7 +45,7 @@ config_owner_async_task = None
 # Global lock for settings configuration
 global_lock = threading.Lock()
 
-thread_local_overrides = contextvars.ContextVar("context_overrides", default=dotdict())
+thread_local_overrides = contextvars.ContextVar("context_overrides", default=dotdict())  # noqa: B039
 
 
 class Settings:
@@ -242,6 +254,38 @@ class Settings:
         overrides = thread_local_overrides.get()
         combined_config = {**main_thread_config, **overrides}
         return repr(combined_config)
+
+    def save(
+        self,
+        path: str,
+        modules_to_serialize: list[Any] | None = None,
+        exclude_keys: list[str] | None = None,
+    ):
+        logger.warning(
+            "`dspy.settings` are serialized using cloudpickle. Because cloudpickle allows for the "
+            "execution of arbitrary code during deserialization, you should only load files from "
+            "verified sources within a trusted environment."
+        )
+
+        try:
+            modules_to_serialize = modules_to_serialize or []
+            for module in modules_to_serialize:
+                cloudpickle.register_pickle_by_value(module)
+
+            exclude_keys = exclude_keys or []
+            data = {key: value for key, value in self.config.items() if key not in exclude_keys}
+            with open(path, "wb") as handle:
+                cloudpickle.dump(data, handle)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Saving failed with error: {exc}. Please remove the non-picklable attributes from the values "
+                "in `dspy.settings`."
+            ) from exc
+
+    @classmethod
+    def load(cls, path: str) -> dict[str, Any]:
+        with open(path, "rb") as handle:
+            return cloudpickle.load(handle)
 
 
 settings = Settings()

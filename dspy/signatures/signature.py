@@ -1,3 +1,5 @@
+# ruff: noqa: UP007, UP038, UP045
+
 """Signature class for DSPy.
 
 You typically subclass the Signature class, like this:
@@ -172,6 +174,12 @@ class SignatureMeta(type(BaseModel)):
         # Add any remaining annotations that weren't in field_order
         ordered_annotations.update({k: v for k, v in raw_annotations.items() if k not in ordered_annotations})
         namespace["__annotations__"] = ordered_annotations
+
+        # On Python 3.14+, prevent Pydantic from capturing this frame's locals via
+        # the parent namespace reset path. Those locals can contain unpicklable
+        # references that break cloudpickle round-trips for Signature subclasses.
+        if sys.version_info >= (3, 14):
+            kwargs["__pydantic_reset_parent_namespace__"] = False
 
         # Let Pydantic do its thing
         cls = super().__new__(mcs, signature_name, bases, namespace, **kwargs)
@@ -482,6 +490,30 @@ class Signature(BaseModel, metaclass=SignatureMeta):
             if cls.fields[name].json_schema_extra != other.fields[name].json_schema_extra:
                 return False
         return True
+
+    @classmethod
+    def dump_state(cls):
+        state = {"instructions": cls.instructions, "fields": []}
+        for field in cls.fields:
+            state["fields"].append(
+                {
+                    "prefix": cls.fields[field].json_schema_extra["prefix"],
+                    "description": cls.fields[field].json_schema_extra["desc"],
+                }
+            )
+
+        return state
+
+    @classmethod
+    def load_state(cls, state):
+        signature_copy = Signature(deepcopy(cls.fields), cls.instructions)
+
+        signature_copy.instructions = state["instructions"]
+        for field, saved_field in zip(signature_copy.fields.values(), state["fields"], strict=False):
+            field.json_schema_extra["prefix"] = saved_field["prefix"]
+            field.json_schema_extra["desc"] = saved_field["description"]
+
+        return signature_copy
 
 
 def ensure_signature(signature: str | type[Signature], instructions=None) -> None | type[Signature]:

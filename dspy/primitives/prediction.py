@@ -1,4 +1,5 @@
 from dspy.primitives.example import Example
+from dspy.utils.lm_metadata import DSPY_LM_METADATA_KEY
 
 
 class Prediction(Example):
@@ -22,6 +23,13 @@ class Prediction(Example):
         del self._input_keys
 
         self._completions = None
+        self._lm_usage = None
+
+    def get_lm_usage(self):
+        return self._lm_usage
+
+    def set_lm_usage(self, value):
+        self._lm_usage = value
 
     @classmethod
     def from_completions(cls, list_or_dict, signature=None):
@@ -107,6 +115,23 @@ class Prediction(Example):
     @property
     def completions(self):
         return self._completions
+
+    @property
+    def lm_metadata(self) -> dict | None:
+        """Structured metadata from the last LM call (truncation, finish_reason, usage).
+
+        Present when the LM returned ``_dspy_lm`` on the raw completion dict and
+        the adapter forwarded it. Not a signature field.
+        """
+        if self._completions is None:
+            return None
+        comp = self._completions._completions
+        if DSPY_LM_METADATA_KEY not in comp:
+            return None
+        vals = comp[DSPY_LM_METADATA_KEY]
+        if not vals:
+            return None
+        return vals[0]
 
 
 class Completions:

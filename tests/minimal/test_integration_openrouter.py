@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 try:
-    from dspy.clients.lm import LM as _OpenAICompatibleLM
+    from openai import APIConnectionError, APIStatusError, APITimeoutError
+except Exception:  # pragma: no cover - openai is an optional runtime detail here.
+    APIConnectionError = APIStatusError = APITimeoutError = RuntimeError
+
+try:
+    from dspy.clients.lm import LM
 
     _HAS_LM = True
 except Exception:
@@ -40,6 +45,16 @@ def _deno_path() -> str | None:
     return shutil.which("deno")
 
 
+def _live_model_name() -> str:
+    return os.environ.get("OPENROUTER_TEST_MODEL", "openrouter/free")
+
+
+def _skip_on_provider_unavailable(exc: Exception) -> None:
+    if isinstance(exc, APIConnectionError | APIStatusError | APITimeoutError):
+        pytest.skip(f"OpenRouter live model unavailable: {exc}")
+    raise exc
+
+
 @pytest.fixture(scope="module")
 def openrouter_configured():
     if not _HAS_LM:
@@ -53,14 +68,17 @@ def openrouter_configured():
 def test_predict_live(openrouter_configured):
     import dspy
 
-    lm = _OpenAICompatibleLM(
-        "openrouter/qwen/qwen3.6-plus-preview:free",
+    lm = LM(
+        _live_model_name(),
         temperature=0.5,
         max_tokens=256,
         cache=False,
     )
-    dspy.configure(lm=lm)
-    out = dspy.Predict("question -> answer")(question="Reply with the single word: OK")
+    dspy.configure(lm=lm, adapter=dspy.JSONAdapter())
+    try:
+        out = dspy.Predict("question -> answer")(question="Reply with the single word: OK")
+    except Exception as exc:
+        _skip_on_provider_unavailable(exc)
     assert hasattr(out, "answer")
     assert len(str(out.answer)) > 0
 
@@ -72,21 +90,24 @@ def test_rlm_live(openrouter_configured):
 
     import dspy
 
-    lm = _OpenAICompatibleLM(
-        "openrouter/qwen/qwen3.6-plus-preview:free",
+    lm = LM(
+        _live_model_name(),
         temperature=0.4,
         max_tokens=768,
         cache=False,
     )
-    dspy.configure(lm=lm)
+    dspy.configure(lm=lm, adapter=dspy.JSONAdapter())
     rlm = dspy.RLM(
         "context, query -> answer",
         max_iterations=6,
         max_llm_calls=12,
         paper_instruction_appendix="qwen_coder",
     )
-    out = rlm(
-        context="The code is XYZZY-42.",
-        query="What is the code? Use Python and SUBMIT(answer=...).",
-    )
+    try:
+        out = rlm(
+            context="The code is XYZZY-42.",
+            query="What is the code? Use Python and SUBMIT(answer=...).",
+        )
+    except Exception as exc:
+        _skip_on_provider_unavailable(exc)
     assert "XYZZY" in str(out.answer).upper() or "42" in str(out.answer)

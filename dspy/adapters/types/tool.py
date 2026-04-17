@@ -156,6 +156,23 @@ class Tool(Type):
             },
         }
 
+    def format_as_litellm_function_call(self):
+        return self.format_as_openai_function_call()
+
+    @classmethod
+    def from_mcp_tool(cls, *_args, **_kwargs) -> "Tool":
+        raise NotImplementedError(
+            "MCP tool conversion is intentionally out of scope in dspy-slim. "
+            "Use `dspy.Tool(...)` or a plain callable on the kept surface."
+        )
+
+    @classmethod
+    def from_langchain(cls, *_args, **_kwargs) -> "Tool":
+        raise NotImplementedError(
+            "LangChain tool conversion is intentionally out of scope in dspy-slim. "
+            "Use `dspy.Tool(...)` or a plain callable on the kept surface."
+        )
+
     def _run_async_in_sync(self, coroutine):
         try:
             loop = asyncio.get_running_loop()
@@ -214,6 +231,35 @@ class ToolCalls(Type):
                     "arguments": self.args,
                 },
             }
+
+        def execute(self, functions: dict[str, Any] | list[Tool] | None = None) -> Any:
+            func = None
+
+            if functions is None:
+                frame = inspect.currentframe().f_back
+                try:
+                    caller_globals = frame.f_globals
+                    caller_locals = frame.f_locals
+                    func = caller_locals.get(self.name) or caller_globals.get(self.name)
+                finally:
+                    del frame
+            elif isinstance(functions, dict):
+                func = functions.get(self.name)
+            elif isinstance(functions, list):
+                for tool in functions:
+                    if tool.name == self.name:
+                        func = tool.func
+                        break
+
+            if func is None:
+                raise ValueError(
+                    f"Tool function '{self.name}' not found. Please pass the tool functions to `execute()`."
+                )
+
+            try:
+                return func(**(self.args or {}))
+            except Exception as exc:
+                raise RuntimeError(f"Error executing tool '{self.name}': {exc}") from exc
 
     tool_calls: list[ToolCall]
 
@@ -290,7 +336,7 @@ def _resolve_json_schema_reference(schema: dict) -> dict:
         return schema
 
     def resolve_refs(obj: Any) -> Any:
-        if not isinstance(obj, (dict, list)):
+        if not isinstance(obj, dict | list):
             return obj
         if isinstance(obj, dict):
             if "$ref" in obj:

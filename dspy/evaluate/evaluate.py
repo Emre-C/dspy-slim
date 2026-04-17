@@ -31,9 +31,12 @@ class Evaluate:
         metric: Callable | None = None,
         num_threads: int | None = None,
         display_progress: bool = False,
+        display_table: bool | int = False,
         max_errors: int | None = None,
         provide_traceback: bool | None = None,
         failure_score: float = 0.0,
+        save_as_csv: str | None = None,
+        save_as_json: str | None = None,
         callback_metadata: dict[str, Any] | None = None,
         **kwargs,
     ):
@@ -47,9 +50,12 @@ class Evaluate:
         self.metric = metric
         self.num_threads = num_threads
         self.display_progress = display_progress
+        self.display_table = display_table
         self.max_errors = max_errors
         self.provide_traceback = provide_traceback
         self.failure_score = failure_score
+        self.save_as_csv = save_as_csv
+        self.save_as_json = save_as_json
 
     @with_callbacks
     def __call__(
@@ -59,15 +65,27 @@ class Evaluate:
         devset: list["dspy.Example"] | None = None,
         num_threads: int | None = None,
         display_progress: bool | None = None,
+        display_table: bool | int | None = None,
         callback_metadata: dict[str, Any] | None = None,
+        save_as_csv: str | None = None,
+        save_as_json: str | None = None,
     ) -> EvaluationResult:
         metric = metric if metric is not None else self.metric
         devset = devset if devset is not None else self.devset
         num_threads = num_threads if num_threads is not None else self.num_threads
         display_progress = display_progress if display_progress is not None else self.display_progress
+        display_table = display_table if display_table is not None else self.display_table
+        save_as_csv = save_as_csv if save_as_csv is not None else self.save_as_csv
+        save_as_json = save_as_json if save_as_json is not None else self.save_as_json
 
         if callback_metadata:
             logger.debug("Evaluate is called with callback metadata: %s", callback_metadata)
+
+        if display_table or save_as_csv or save_as_json:
+            logger.warning(
+                "`display_table`, `save_as_csv`, and `save_as_json` are intentionally omitted in dspy-slim's "
+                "minimal Evaluate helper; returning `EvaluationResult` only."
+            )
 
         tqdm.tqdm._instances.clear()
 

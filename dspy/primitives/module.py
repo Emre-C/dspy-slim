@@ -2,12 +2,15 @@ import inspect
 import logging
 from typing import Any, TextIO
 
+from dspy.dsp.utils.settings import thread_local_overrides
 from dspy.dsp.utils.settings import settings
 from dspy.primitives.base_module import BaseModule
 from dspy.primitives.example import Example
 from dspy.primitives.prediction import Prediction
 from dspy.utils.callback import with_callbacks
 from dspy.utils.inspect_history import pretty_print_history
+from dspy.utils.magicattr import set as magic_set
+from dspy.utils.usage_tracker import track_usage
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +97,11 @@ class Module(BaseModule, metaclass=ProgramMeta):
         caller_modules.append(self)
 
         with settings.context(caller_modules=caller_modules):
+            if settings.track_usage and thread_local_overrides.get().get("usage_tracker") is None:
+                with track_usage() as usage_tracker:
+                    output = self.forward(*args, **kwargs)
+                self._set_lm_usage(usage_tracker.get_total_tokens(), output)
+                return output
             return self.forward(*args, **kwargs)
 
     @with_callbacks
@@ -103,6 +111,11 @@ class Module(BaseModule, metaclass=ProgramMeta):
         caller_modules.append(self)
 
         with settings.context(caller_modules=caller_modules):
+            if settings.track_usage and thread_local_overrides.get().get("usage_tracker") is None:
+                with track_usage() as usage_tracker:
+                    output = await self.aforward(*args, **kwargs)
+                self._set_lm_usage(usage_tracker.get_total_tokens(), output)
+                return output
             return await self.aforward(*args, **kwargs)
 
     def named_predictors(self):
@@ -199,6 +212,11 @@ class Module(BaseModule, metaclass=ProgramMeta):
 
         return "\n".join(s)
 
+    def map_named_predictors(self, func):
+        for name, predictor in self.named_predictors():
+            magic_set(self, name, func(predictor))
+        return self
+
     def inspect_history(self, n: int = 1, file: "TextIO | None" = None) -> None:
         """Display the LM call history for this module.
 
@@ -266,6 +284,19 @@ class Module(BaseModule, metaclass=ProgramMeta):
         else:
             results = parallel_executor.forward(exec_pairs)
             return results
+
+    def _set_lm_usage(self, tokens: dict[str, Any], output: Any):
+        prediction_in_output = None
+        if isinstance(output, Prediction):
+            prediction_in_output = output
+        elif isinstance(output, tuple) and len(output) > 0 and isinstance(output[0], Prediction):
+            prediction_in_output = output[0]
+        if prediction_in_output is not None:
+            prediction_in_output.set_lm_usage(tokens)
+        else:
+            logger.warning(
+                "Failed to set LM usage. Please return `dspy.Prediction` from `dspy.Module` to enable usage tracking."
+            )
 
     def __getattribute__(self, name):
         attr = super().__getattribute__(name)

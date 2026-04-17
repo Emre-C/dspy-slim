@@ -40,9 +40,14 @@ Support utilities (`dspy.Evaluate`, `dspy.JSONAdapter`, `dspy.bootstrap_trace_da
 ## Architecture decisions
 
 - **`dspy.LM` does not depend on LiteLLM.** The LM transport is a direct OpenAI-compatible client; OpenRouter is supported through its OpenAI-compatible API. Only chat-style and Responses-style APIs — no legacy text-completion mode.
-- **GEPA is a package dependency, not vendored.** Integration uses the published `gepa[dspy]==0.1.1` package. The DSPy wrapper tracks the API of the pinned version, not unreleased upstream kwargs. Local adapter hardening (skip predictors with no reflective examples, empty proposals instead of crashes, fallback to module-level scoring on mismatch) is preserved across syncs.
-- **`dspy.Tool` is not a top-level re-export.** Import from `dspy.predict.Tool` or `dspy.adapters.types`. Tool schemas depend on `pydantic` and `jsonschema` (both explicit dependencies).
+- **GEPA is a package dependency, not vendored.** Integration uses the published `gepa[dspy]==0.1.1` package. The DSPy wrapper tracks the stable pinned engine surface, not unreleased upstream kwargs. Local adapter hardening (skip predictors with no reflective examples, empty proposals instead of crashes, fallback to module-level scoring on mismatch) is preserved across syncs.
+- **`dspy.Tool` remains available at the top level for upstream compatibility.** Internal imports should still prefer concrete owning modules such as `dspy.adapters.types`. Tool schemas depend on `pydantic` and `jsonschema` (both explicit dependencies).
+- **Tool compatibility stays OpenAI-schema-first.** `format_as_litellm_function_call()` and `ToolCall.execute()` remain available for upstream compatibility, but MCP and LangChain conversion helpers stay intentionally unsupported because those integrations are removed from the fork.
+- **`RLM` keeps the upstream tool-facing entry point.** Pass plain callables or top-level `dspy.Tool` objects via `tools=[...]`; internal imports should still prefer the concrete owning type.
+- **LM metadata propagation and truncation-aware `RLM` finalization are intentional divergences.** This fork preserves provider-agnostic call metadata on completion dicts and exposes it as `Prediction.lm_metadata`, then uses truncation signals, prompt-history compaction, and optional paper-appendix prompting knobs to push `RLM` into a finalization-oriented next turn. Upstream stable DSPy does not currently expose that metadata or those finalization controls on the normal module path.
 - **ReAct exposes inner predictors to GEPA.** `named_predictors()` yields both `react` and `extract.predict`, so `GEPA.compile` can target the agent loop and extraction step separately.
+- **Streaming keeps the upstream Chat/JSON listener semantics on the kept surface.** `StreamListener` follows upstream-style delimiter buffering for `ChatAdapter` and `JSONAdapter`; XML streaming remains out of scope because `XMLAdapter` is intentionally removed.
+- **Minimal support utilities accept a narrower feature set on purpose.** `Evaluate` keeps the scoring/execution path but omits table/export helpers, while `Cache` keeps runtime memory/disk caching and now exposes manual memory-cache save/load without reintroducing removed integrations.
 - **Internal imports use concrete types.** Runtime dispatch and typing import from owning modules (`ChatAdapter`, `Tool`, `Predict`, etc.), never from broad `dspy` top-level re-exports.
 - **RLM sandbox is intentionally narrow.** Typed `SUBMIT`, tool bridging, and large-variable injection are supported; host file mounts, env passthrough, and sandbox network config are omitted unless reintroduced for a validated need.
 - **`jsonschema` is an explicit dependency** because DSPy imports it directly (not relied on transitively).
@@ -63,7 +68,9 @@ Shared scripts (from `minimal_dspy/`):
 
 ## Fork workflow
 
-Detailed remote setup and merge procedure are in [`FORK.md`](FORK.md).
+Detailed remote setup and merge procedure are in [`docs/FORK.md`](docs/FORK.md).
+
+Behavioral-compatibility planning for the slim fork is tracked in [`docs/UPSTREAM_COMPATIBILITY_PLAN.md`](docs/UPSTREAM_COMPATIBILITY_PLAN.md), the stable-release audit in [`docs/UPSTREAM_COMPATIBILITY_MATRIX.md`](docs/UPSTREAM_COMPATIBILITY_MATRIX.md), and between-release mergeability triage in [`docs/UPSTREAM_FORWARD_COMPATIBILITY.md`](docs/UPSTREAM_FORWARD_COMPATIBILITY.md).
 
 | Task | Command |
 |------|---------|

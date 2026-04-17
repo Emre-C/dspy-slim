@@ -6,18 +6,19 @@ Test organization:
 - Integration tests (@pytest.mark.deno): PythonInterpreter with Deno
 """
 
-from contextlib import contextmanager
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
+import dspy
 from dspy.adapters.types.tool import Tool
 from dspy.predict.rlm import RLM, _strip_code_fences
 from dspy.primitives.code_interpreter import CodeInterpreterError, FinalOutput
 from dspy.primitives.prediction import Prediction
-from dspy.primitives.python_interpreter import PythonInterpreter
 from dspy.primitives.repl_types import REPLEntry, REPLHistory, REPLVariable
+from dspy.utils.lm_metadata import DSPY_LM_METADATA_KEY
 from tests.minimal.helpers.replay_lm import ReplayLM
 from tests.mock_interpreter import MockInterpreter
 
@@ -168,6 +169,22 @@ class TestRLMInitialization:
         rlm = RLM("context -> answer", max_iterations=5, tools=[custom_tool])
         assert "custom_tool" in rlm.tools
         assert len(rlm.tools) == 1  # Only user tools, not internal llm_query/llm_query_batched
+
+    def test_top_level_tool_object_is_accepted_by_rlm(self):
+        """RLM should accept the upstream-style top-level dspy.Tool entry point."""
+
+        def lookup(text: str = "") -> str:
+            """Return a tagged lookup result."""
+            return f"lookup:{text}"
+
+        tool = dspy.Tool(lookup)
+        rlm = RLM("context -> answer", max_iterations=5, tools=[tool])
+
+        assert isinstance(rlm.tools["lookup"], dspy.Tool)
+        assert "`lookup(text: string)`" in rlm.generate_action.signature.instructions
+
+        execution_tools = rlm._prepare_execution_tools()
+        assert execution_tools["lookup"]("value") == "lookup:value"
 
     @pytest.mark.parametrize("tool_name", ["invalid-name", "123start"])
     def test_tool_validation_invalid_identifier(self, tool_name):
@@ -686,6 +703,237 @@ class TestRLMDynamicSignature:
         assert "confidence" in extract_sig.output_fields
 
 
+class TestHistoryCompaction:
+    """Tests for REPLHistory.compact() and its use in the RLM loop."""
+
+    def test_compact_noop_when_below_keep_last(self):
+        """compact() returns the same history when entries <= keep_last."""
+        h = REPLHistory()
+        h = h.append(code="print(1)", output="one", reasoning="r1")
+        h = h.append(code="print(2)", output="two", reasoning="r2")
+        compacted = h.compact(keep_last=3)
+        assert compacted is h  # identity, not just equality
+
+    def test_compact_truncates_old_entries(self):
+        """Old entries lose reasoning and have output truncated."""
+        h = REPLHistory()
+        h = h.append(code="step1", output="x" * 1000, reasoning="long reasoning")
+        h = h.append(code="step2", output="y" * 1000, reasoning="more reasoning")
+        h = h.append(code="step3", output="recent", reasoning="keep this")
+        compacted = h.compact(keep_last=1, summary_output_chars=50)
+
+        # Old entries (0,1) should be compacted
+        assert compacted.entries[0].reasoning == ""
+        assert compacted.entries[1].reasoning == ""
+        assert len(compacted.entries[0].output) < 200  # truncated from 1000
+        assert "omitted" in compacted.entries[0].output
+
+        # Last entry preserved in full
+        assert compacted.entries[2].reasoning == "keep this"
+        assert compacted.entries[2].output == "recent"
+
+    def test_compact_preserves_short_old_output(self):
+        """Old entries with output shorter than summary_output_chars are not truncated."""
+        h = REPLHistory()
+        h = h.append(code="step1", output="short", reasoning="r1")
+        h = h.append(code="step2", output="also short", reasoning="r2")
+        h = h.append(code="step3", output="recent", reasoning="r3")
+        compacted = h.compact(keep_last=1, summary_output_chars=200)
+
+        assert compacted.entries[0].output == "short"
+        assert "omitted" not in compacted.entries[0].output
+
+    def test_compact_preserves_entry_count(self):
+        """Compaction doesn't drop entries, just summarizes them."""
+        h = REPLHistory()
+        for i in range(10):
+            h = h.append(code=f"step{i}", output=f"out{i}" * 100, reasoning=f"r{i}")
+        compacted = h.compact(keep_last=3)
+        assert len(compacted) == 10
+
+    def test_compact_reduces_formatted_size(self):
+        """Compacted history should format to significantly fewer chars."""
+        h = REPLHistory()
+        for i in range(12):
+            h = h.append(code=f"print({i})", output="x" * 5000, reasoning="thinking " * 50)
+        full_size = len(h.format())
+        compact_size = len(h.compact(keep_last=3).format())
+        # Compacted should be substantially smaller
+        assert compact_size < full_size * 0.5
+
+
+class TestRLMBudgetManagement:
+    """Tests for RLM prompt budget management: compaction threshold, iteration labels, extract fallback."""
+
+    def test_iteration_label_normal(self):
+        """Normal iterations get a plain counter."""
+        rlm = RLM("query -> answer", max_iterations=10)
+        label = rlm._get_iteration_label(0, finalize_mode=False)
+        assert label == "1/10"
+        label = rlm._get_iteration_label(5, finalize_mode=False)
+        assert label == "6/10"
+
+    def test_iteration_label_final(self):
+        """Final iteration gets a MUST SUBMIT directive."""
+        rlm = RLM("query -> answer", max_iterations=10)
+        label = rlm._get_iteration_label(9, finalize_mode=False)
+        assert "FINAL ITERATION" in label
+        assert "MUST call SUBMIT()" in label
+
+    def test_iteration_label_next_to_last(self):
+        """Penultimate iteration gets a prepare-to-submit hint."""
+        rlm = RLM("query -> answer", max_iterations=10)
+        label = rlm._get_iteration_label(8, finalize_mode=False)
+        assert "NEXT-TO-LAST" in label
+
+    def test_iteration_label_running_low(self):
+        """Third-from-last iteration gets a wrap-up hint."""
+        rlm = RLM("query -> answer", max_iterations=10)
+        label = rlm._get_iteration_label(7, finalize_mode=False)
+        assert "Running low" in label
+
+    def test_prompt_history_no_compaction_below_threshold(self):
+        """History below threshold is returned as-is."""
+        rlm = RLM("query -> answer", max_iterations=20, history_compaction_threshold=8)
+        h = REPLHistory()
+        for i in range(5):
+            h = h.append(code=f"step{i}", output=f"out{i}", reasoning=f"r{i}")
+        result = rlm._project_prompt_history(h, iteration=5, finalize_mode=False)
+        assert result is h
+
+    def test_prompt_history_compacts_above_threshold(self):
+        """History above threshold gets compacted."""
+        rlm = RLM("query -> answer", max_iterations=20, history_compaction_threshold=5)
+        h = REPLHistory()
+        for i in range(10):
+            h = h.append(code=f"step{i}", output="x" * 1000, reasoning=f"reason{i}")
+        result = rlm._project_prompt_history(h, iteration=10, finalize_mode=False)
+        # Old entries should have reasoning stripped
+        assert result.entries[0].reasoning == ""
+        # Recent entries preserved
+        assert result.entries[-1].reasoning == "reason9"
+
+    def test_compaction_disabled_with_zero_threshold(self):
+        """Setting threshold to 0 disables compaction entirely."""
+        rlm = RLM("query -> answer", max_iterations=20, history_compaction_threshold=0)
+        h = REPLHistory()
+        for i in range(15):
+            h = h.append(code=f"step{i}", output="x" * 1000, reasoning=f"r{i}")
+        result = rlm._project_prompt_history(h, iteration=10, finalize_mode=False)
+        assert result is h
+
+    def test_extract_fallback_uses_compacted_history(self):
+        """Extract fallback should pass compacted (not full) history to the LM."""
+        # Build a long-running scenario that exhausts max_iterations
+        num_iterations = 10
+        mock = MockInterpreter(responses=["exploring..."] * num_iterations)
+        rlm = RLM("query -> answer", max_iterations=num_iterations, interpreter=mock)
+        rlm.generate_action = make_mock_predictor(
+            [{"reasoning": f"Explore {i}", "code": "print('exploring')"} for i in range(num_iterations)]
+        )
+
+        # Track what the extract predictor receives
+        received_history = []
+        class CapturingExtract:
+            def __call__(self, **kwargs):
+                received_history.append(kwargs.get("repl_history"))
+                return Prediction(answer="extracted_answer")
+
+        rlm.extract = CapturingExtract()
+
+        result = rlm.forward(query="test")
+        assert result.answer == "extracted_answer"
+        assert len(received_history) == 1
+        # The extract should have received compacted history, not raw
+        extract_hist = received_history[0]
+        # Old entries should have empty reasoning (compacted)
+        assert extract_hist.entries[0].reasoning == ""
+        # Last 3 entries should be preserved in full
+        assert extract_hist.entries[-1].reasoning != ""
+
+    def test_long_run_submits_before_max_iterations(self):
+        """With SUBMIT urgency, the model gets the directive on the final iteration."""
+        num_iterations = 5
+        # Build responses: first 4 explore, last one should see SUBMIT directive
+        responses = [{"reasoning": f"Step {i}", "code": "print('work')"} for i in range(num_iterations - 1)]
+        responses.append({"reasoning": "Final", "code": 'SUBMIT(answer="done")'})
+
+        mock_responses = ["exploring..."] * (num_iterations - 1) + [FinalOutput({"answer": "done"})]
+        mock = MockInterpreter(responses=mock_responses)
+        rlm = RLM("query -> answer", max_iterations=num_iterations, interpreter=mock)
+
+        # Track iteration labels received
+        received_iterations = []
+        class TrackingPredictor:
+            def __init__(self):
+                self.idx = 0
+            def __call__(self, **kwargs):
+                received_iterations.append(kwargs.get("iteration", ""))
+                result = responses[self.idx % len(responses)]
+                self.idx += 1
+                return Prediction(**result)
+
+        rlm.generate_action = TrackingPredictor()
+
+        result = rlm.forward(query="test")
+        assert result.answer == "done"
+        # The final iteration label should contain the SUBMIT directive
+        assert "MUST call SUBMIT()" in received_iterations[-1]
+
+    def test_truncation_triggers_finalization_mode_on_next_iteration(self):
+        """Truncated action output should force a finalization-oriented next turn."""
+        mock = MockInterpreter(responses=["exploring...", FinalOutput({"answer": "done"})])
+        rlm = RLM("query -> answer", max_iterations=6, interpreter=mock)
+
+        received_iterations = []
+
+        class TruncationAwarePredictor:
+            def __init__(self):
+                self.idx = 0
+
+            def __call__(self, **kwargs):
+                received_iterations.append(kwargs.get("iteration", ""))
+                if self.idx == 0:
+                    self.idx += 1
+                    return Prediction.from_completions(
+                        [{
+                            "reasoning": "Need one more turn",
+                            "code": "print('work')",
+                            DSPY_LM_METADATA_KEY: {"truncated": True, "finish_reason": "length"},
+                        }]
+                    )
+                self.idx += 1
+                return Prediction(reasoning="Finalize", code='SUBMIT(answer="done")')
+
+        rlm.generate_action = TruncationAwarePredictor()
+
+        result = rlm.forward(query="test")
+
+        assert result.answer == "done"
+        assert "FINALIZATION MODE" in received_iterations[1]
+
+    def test_trajectory_preserved_despite_compaction(self):
+        """The returned trajectory should contain full (uncompacted) history."""
+        num_iterations = 10
+        mock = MockInterpreter(responses=["out"] * num_iterations)
+        rlm = RLM(
+            "query -> answer",
+            max_iterations=num_iterations,
+            history_compaction_threshold=3,
+            interpreter=mock,
+        )
+        rlm.generate_action = make_mock_predictor(
+            [{"reasoning": f"reason_{i}", "code": f"print({i})"} for i in range(num_iterations)]
+        )
+        rlm.extract = make_mock_predictor([{"answer": "fallback"}])
+
+        result = rlm.forward(query="test")
+        # Trajectory should have all entries with full reasoning
+        assert len(result.trajectory) == num_iterations
+        for i, entry in enumerate(result.trajectory):
+            assert entry["reasoning"] == f"reason_{i}"
+
+
 class TestSharedRLMReplayFixtures:
     """Replay shared RLM scenarios through the Python port."""
 
@@ -696,7 +944,7 @@ class TestSharedRLMReplayFixtures:
         python_case = case["python"]
         budget = case.get("budget") or {}
         lm = ReplayLM(outputs=[json.dumps(output) for output in python_case["lm_outputs"]])
-        dspy.configure(lm=lm)
+        dspy.configure(lm=lm, adapter=dspy.JSONAdapter())
 
         interpreter = MockInterpreter(
             responses=[_python_interpreter_response(item) for item in python_case["interpreter_responses"]],

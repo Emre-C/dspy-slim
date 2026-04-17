@@ -5,6 +5,11 @@ from typing import Any, TextIO
 from dspy.dsp.utils import settings
 from dspy.utils.callback import with_callbacks
 from dspy.utils.inspect_history import pretty_print_history
+from dspy.utils.lm_metadata import (
+    DSPY_LM_METADATA_KEY,
+    build_chat_completion_metadata,
+    build_responses_api_metadata,
+)
 
 MAX_HISTORY_SIZE = 10_000
 GLOBAL_HISTORY = []
@@ -95,6 +100,9 @@ class BaseLM:
         else:
             outputs = self._process_completion(response, merged_kwargs)
 
+        if not getattr(response, "cache_hit", False) and settings.usage_tracker and hasattr(response, "usage"):
+            settings.usage_tracker.add_usage(self.model, dict(response.usage))
+
         if settings.disable_history:
             return outputs
 
@@ -125,7 +133,7 @@ class BaseLM:
         prompt: str | None = None,
         messages: list[dict[str, Any]] | None = None,
         **kwargs
-    ) -> list[dict[str, Any] | str]:
+    ) -> list[dict[str, Any]]:
         response = self.forward(prompt=prompt, messages=messages, **kwargs)
         outputs = self._process_lm_response(response, prompt, messages, **kwargs)
 
@@ -137,7 +145,7 @@ class BaseLM:
         prompt: str | None = None,
         messages: list[dict[str, Any]] | None = None,
         **kwargs
-    ) -> list[dict[str, Any] | str]:
+    ) -> list[dict[str, Any]]:
         response = await self.aforward(prompt=prompt, messages=messages, **kwargs)
         outputs = self._process_lm_response(response, prompt, messages, **kwargs)
         return outputs
@@ -214,6 +222,15 @@ class BaseLM:
 
         return new_instance
 
+    def dump_state(self):
+        filtered_kwargs = {key: value for key, value in self.kwargs.items() if key != "api_key"}
+        return {
+            "model": self.model,
+            "model_type": self.model_type,
+            "cache": self.cache,
+            **filtered_kwargs,
+        }
+
     def inspect_history(self, n: int = 1, file: "TextIO | None" = None) -> None:
         pretty_print_history(self.history, n, file=file)
 
@@ -246,16 +263,21 @@ class BaseLM:
     def _process_completion(self, response, merged_kwargs):
         """Process the response of OpenAI chat completion API and extract outputs.
 
+        Each output is a dict with at least ``"text"`` and ``"_dspy_lm"``
+        (structured call metadata).  Additional keys (``"logprobs"``,
+        ``"tool_calls"``, ``"citations"``) are present when the provider
+        returns them.
+
         Args:
             response: The OpenAI chat completion response
                 https://platform.openai.com/docs/api-reference/chat/object
             merged_kwargs: Merged kwargs from self.kwargs and method kwargs
 
         Returns:
-            List of processed outputs
+            List of output dicts
         """
         outputs = []
-        for c in response.choices:
+        for idx, c in enumerate(response.choices):
             output = {}
             if hasattr(c, "message"):
                 output["text"] = getattr(c.message, "content", "") or ""
@@ -272,11 +294,9 @@ class BaseLM:
             if citations:
                 output["citations"] = citations
 
+            output[DSPY_LM_METADATA_KEY] = build_chat_completion_metadata(response, choice_index=idx)
             outputs.append(output)
 
-        if all(len(output) == 1 for output in outputs):
-            # Return a list if every output only has "text" key
-            outputs = [output["text"] for output in outputs]
         return outputs
 
     def _extract_citations_from_response(self, choice):
@@ -322,6 +342,7 @@ class BaseLM:
             result["text"] = "".join(text_outputs)
         if len(tool_calls) > 0:
             result["tool_calls"] = tool_calls
+        result[DSPY_LM_METADATA_KEY] = build_responses_api_metadata(response)
         # All `response.output` items map to one answer, so we return a list of size 1.
         return [result]
 

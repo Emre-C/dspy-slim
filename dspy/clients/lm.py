@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import logging
 import os
 import re
@@ -235,6 +237,210 @@ def _add_dspy_identifier_to_headers(headers: dict[str, Any] | None = None) -> di
     }
 
 
+def _streaming_context() -> tuple[Any | None, int | None]:
+    stream = dspy.settings.send_stream
+    caller_predict = dspy.settings.caller_predict
+    caller_predict_id = id(caller_predict) if caller_predict else None
+    return stream, caller_predict_id
+
+
+def _add_stream_usage_if_needed(request: dict[str, Any]) -> None:
+    if not dspy.settings.track_usage:
+        return
+    request["stream_options"] = {**request.get("stream_options", {}), "include_usage": True}
+
+
+def _merge_tool_call_delta(tool_calls: dict[int, dict[str, Any]], delta_tool_calls: list[Any] | None) -> None:
+    if not delta_tool_calls:
+        return
+
+    for delta in delta_tool_calls:
+        index = getattr(delta, "index", 0)
+        merged = tool_calls.setdefault(index, {"id": None, "type": None, "function": {"name": "", "arguments": ""}})
+        if getattr(delta, "id", None):
+            merged["id"] = delta.id
+        if getattr(delta, "type", None):
+            merged["type"] = delta.type
+        function = getattr(delta, "function", None)
+        if function is None:
+            continue
+        if getattr(function, "name", None):
+            merged["function"]["name"] += function.name
+        if getattr(function, "arguments", None):
+            merged["function"]["arguments"] += function.arguments
+
+
+def _build_streamed_chat_response(chunks: list[dotdict], fallback_model: str) -> dotdict:
+    content_parts: list[str] = []
+    finish_reason = "stop"
+    tool_calls: dict[int, dict[str, Any]] = {}
+    usage = dotdict()
+    model = fallback_model
+
+    for chunk in chunks:
+        if chunk.get("model"):
+            model = chunk.model
+        if chunk.get("usage"):
+            usage = dotdict(chunk.usage)
+
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+
+        choice = choices[0]
+        delta = choice.get("delta") or dotdict()
+        if delta.get("content") is not None:
+            content_parts.append(delta.content)
+        _merge_tool_call_delta(tool_calls, delta.get("tool_calls"))
+        if choice.get("finish_reason"):
+            finish_reason = choice.finish_reason
+
+    message = dotdict(content="".join(content_parts), tool_calls=[dotdict(item) for item in tool_calls.values()] or None)
+    return dotdict(
+        choices=[dotdict(message=message, finish_reason=finish_reason)],
+        usage=usage,
+        model=model,
+        cache_hit=False,
+    )
+
+
+def _stream_openai_chat_completion(request: dict[str, Any], num_retries: int):
+    from dspy.streaming.messages import sync_send_to_stream
+
+    request = dict(request)
+    request.pop("rollout_id", None)
+    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
+    if "response_format" in request:
+        request["response_format"] = _build_chat_response_format(request["response_format"])
+    _add_stream_usage_if_needed(request)
+    request["stream"] = True
+
+    request, client_kwargs = _build_client_kwargs(request, num_retries)
+    request["model"] = _provider_model_name(request["model"])
+    client = OpenAI(**client_kwargs)
+
+    stream, caller_predict_id = _streaming_context()
+    chunks: list[dotdict] = []
+    for raw_chunk in client.chat.completions.create(extra_headers=headers, **request):
+        chunk = _normalize_openai_object(raw_chunk)
+        if not isinstance(chunk, dotdict):
+            chunk = dotdict(chunk)
+        if caller_predict_id is not None:
+            chunk.predict_id = caller_predict_id
+        chunks.append(chunk)
+        if stream is not None:
+            sync_send_to_stream(stream, chunk)
+
+    return _build_streamed_chat_response(chunks, request["model"])
+
+
+async def _astream_openai_chat_completion(request: dict[str, Any], num_retries: int):
+    request = dict(request)
+    request.pop("rollout_id", None)
+    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
+    if "response_format" in request:
+        request["response_format"] = _build_chat_response_format(request["response_format"])
+    _add_stream_usage_if_needed(request)
+    request["stream"] = True
+
+    request, client_kwargs = _build_client_kwargs(request, num_retries)
+    request["model"] = _provider_model_name(request["model"])
+    client = AsyncOpenAI(**client_kwargs)
+
+    stream, caller_predict_id = _streaming_context()
+    chunks: list[dotdict] = []
+    async for raw_chunk in await client.chat.completions.create(extra_headers=headers, **request):
+        chunk = _normalize_openai_object(raw_chunk)
+        if not isinstance(chunk, dotdict):
+            chunk = dotdict(chunk)
+        if caller_predict_id is not None:
+            chunk.predict_id = caller_predict_id
+        chunks.append(chunk)
+        if stream is not None:
+            await stream.send(chunk)
+
+    return _build_streamed_chat_response(chunks, request["model"])
+
+
+def _build_streamed_responses_result(text_parts: list[str], final_response: dotdict | None, fallback_model: str) -> dotdict:
+    if final_response is not None:
+        normalized = _normalize_openai_response(final_response)
+        if normalized.get("model") is None:
+            normalized["model"] = fallback_model
+        return normalized
+
+    return dotdict(
+        output=[dotdict(type="message", content=[dotdict(text="".join(text_parts))])],
+        usage=dotdict(),
+        model=fallback_model,
+        cache_hit=False,
+    )
+
+
+def _stream_openai_responses_completion(request: dict[str, Any], num_retries: int):
+    from dspy.streaming.messages import sync_send_to_stream
+
+    request = dict(request)
+    request.pop("rollout_id", None)
+    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
+    request = _convert_chat_request_to_responses_request(request)
+    _add_stream_usage_if_needed(request)
+    request["stream"] = True
+
+    request, client_kwargs = _build_client_kwargs(request, num_retries)
+    request["model"] = _provider_model_name(request["model"])
+    client = OpenAI(**client_kwargs)
+
+    stream, caller_predict_id = _streaming_context()
+    text_parts: list[str] = []
+    final_response = None
+    for raw_event in client.responses.create(extra_headers=headers, **request):
+        event = _normalize_openai_object(raw_event)
+        if not isinstance(event, dotdict):
+            event = dotdict(event)
+        if caller_predict_id is not None:
+            event.predict_id = caller_predict_id
+        if event.get("type") == "response.output_text.delta" and event.get("delta"):
+            text_parts.append(event.delta)
+        elif event.get("type") == "response.completed" and event.get("response"):
+            final_response = event.response
+        if stream is not None:
+            sync_send_to_stream(stream, event)
+
+    return _build_streamed_responses_result(text_parts, final_response, request["model"])
+
+
+async def _astream_openai_responses_completion(request: dict[str, Any], num_retries: int):
+    request = dict(request)
+    request.pop("rollout_id", None)
+    headers = _add_dspy_identifier_to_headers(request.pop("headers", None))
+    request = _convert_chat_request_to_responses_request(request)
+    _add_stream_usage_if_needed(request)
+    request["stream"] = True
+
+    request, client_kwargs = _build_client_kwargs(request, num_retries)
+    request["model"] = _provider_model_name(request["model"])
+    client = AsyncOpenAI(**client_kwargs)
+
+    stream, caller_predict_id = _streaming_context()
+    text_parts: list[str] = []
+    final_response = None
+    async for raw_event in await client.responses.create(extra_headers=headers, **request):
+        event = _normalize_openai_object(raw_event)
+        if not isinstance(event, dotdict):
+            event = dotdict(event)
+        if caller_predict_id is not None:
+            event.predict_id = caller_predict_id
+        if event.get("type") == "response.output_text.delta" and event.get("delta"):
+            text_parts.append(event.delta)
+        elif event.get("type") == "response.completed" and event.get("response"):
+            final_response = event.response
+        if stream is not None:
+            await stream.send(event)
+
+    return _build_streamed_responses_result(text_parts, final_response, request["model"])
+
+
 class LM(BaseLM):
     """Language model for chat or responses via an OpenAI-compatible API."""
 
@@ -315,6 +521,17 @@ class LM(BaseLM):
             )(completion_fn)
         return completion_fn
 
+    def dump_state(self):
+        filtered_kwargs = {key: value for key, value in self.kwargs.items() if key != "api_key"}
+        return {
+            "model": self.model,
+            "model_type": self.model_type,
+            "cache": self.cache,
+            "num_retries": self.num_retries,
+            "use_developer_role": self.use_developer_role,
+            **filtered_kwargs,
+        }
+
     def forward(
         self,
         prompt: str | None = None,
@@ -332,20 +549,25 @@ class LM(BaseLM):
         if kwargs.get("rollout_id") is None:
             kwargs.pop("rollout_id", None)
 
-        if self.model_type == "chat":
-            completion = openai_chat_completion
-        elif self.model_type == "responses":
-            completion = openai_responses_completion
-        else:
-            raise ValueError(f"Unsupported model_type={self.model_type}")
-
-        completion = self._get_cached_completion_fn(completion, cache)
-
         try:
-            results = completion(
-                request=dict(model=self.model, messages=messages, **kwargs),
-                num_retries=self.num_retries,
-            )
+            request = dict(model=self.model, messages=messages, **kwargs)
+            if dspy.settings.send_stream is not None:
+                if self.model_type == "chat":
+                    results = _stream_openai_chat_completion(request=request, num_retries=self.num_retries)
+                elif self.model_type == "responses":
+                    results = _stream_openai_responses_completion(request=request, num_retries=self.num_retries)
+                else:
+                    raise ValueError(f"Unsupported model_type={self.model_type}")
+            else:
+                if self.model_type == "chat":
+                    completion = openai_chat_completion
+                elif self.model_type == "responses":
+                    completion = openai_responses_completion
+                else:
+                    raise ValueError(f"Unsupported model_type={self.model_type}")
+
+                completion = self._get_cached_completion_fn(completion, cache)
+                results = completion(request=request, num_retries=self.num_retries)
         except BadRequestError as e:
             if _looks_like_context_window_exceeded(e):
                 raise ContextWindowExceededError(model=self.model) from e
@@ -371,20 +593,25 @@ class LM(BaseLM):
         if kwargs.get("rollout_id") is None:
             kwargs.pop("rollout_id", None)
 
-        if self.model_type == "chat":
-            completion = aopenai_chat_completion
-        elif self.model_type == "responses":
-            completion = aopenai_responses_completion
-        else:
-            raise ValueError(f"Unsupported model_type={self.model_type}")
-
-        completion = self._get_cached_completion_fn(completion, cache)
-
         try:
-            results = await completion(
-                request=dict(model=self.model, messages=messages, **kwargs),
-                num_retries=self.num_retries,
-            )
+            request = dict(model=self.model, messages=messages, **kwargs)
+            if dspy.settings.send_stream is not None:
+                if self.model_type == "chat":
+                    results = await _astream_openai_chat_completion(request=request, num_retries=self.num_retries)
+                elif self.model_type == "responses":
+                    results = await _astream_openai_responses_completion(request=request, num_retries=self.num_retries)
+                else:
+                    raise ValueError(f"Unsupported model_type={self.model_type}")
+            else:
+                if self.model_type == "chat":
+                    completion = aopenai_chat_completion
+                elif self.model_type == "responses":
+                    completion = aopenai_responses_completion
+                else:
+                    raise ValueError(f"Unsupported model_type={self.model_type}")
+
+                completion = self._get_cached_completion_fn(completion, cache)
+                results = await completion(request=request, num_retries=self.num_retries)
         except BadRequestError as e:
             if _looks_like_context_window_exceeded(e):
                 raise ContextWindowExceededError(model=self.model) from e

@@ -14,7 +14,7 @@ from dspy.adapters.utils import (
 )
 from dspy.signatures.signature import Signature
 from dspy.utils.callback import BaseCallback
-from dspy.utils.exceptions import AdapterParseError
+from dspy.utils.exceptions import AdapterParseError, ContextWindowExceededError
 
 field_header_pattern = re.compile(r"\[\[ ## (\w+) ## \]\]")
 
@@ -32,18 +32,56 @@ class ChatAdapter(Adapter):
         callbacks: list[BaseCallback] | None = None,
         use_native_function_calling: bool = False,
         native_response_types: list[type[type]] | None = None,
+        use_json_adapter_fallback: bool = True,
     ):
         """
         Args:
             callbacks: List of callback functions to execute during adapter methods.
             use_native_function_calling: Whether to enable native function calling capabilities.
             native_response_types: List of output field types handled by native LM features.
+            use_json_adapter_fallback: Whether parse and formatting failures should
+                retry once with ``JSONAdapter``.
         """
         super().__init__(
             callbacks=callbacks,
             use_native_function_calling=use_native_function_calling,
             native_response_types=native_response_types,
         )
+        self.use_json_adapter_fallback = use_json_adapter_fallback
+
+    def __call__(
+        self,
+        lm,
+        lm_kwargs,
+        signature,
+        demos,
+        inputs,
+    ):
+        try:
+            return super().__call__(lm, lm_kwargs, signature, demos, inputs)
+        except Exception as exc:
+            from dspy.adapters.json_adapter import JSONAdapter
+
+            if isinstance(exc, ContextWindowExceededError) or isinstance(self, JSONAdapter) or not self.use_json_adapter_fallback:
+                raise
+            return JSONAdapter()(lm, lm_kwargs, signature, demos, inputs)
+
+    async def acall(
+        self,
+        lm,
+        lm_kwargs,
+        signature,
+        demos,
+        inputs,
+    ):
+        try:
+            return await super().acall(lm, lm_kwargs, signature, demos, inputs)
+        except Exception as exc:
+            from dspy.adapters.json_adapter import JSONAdapter
+
+            if isinstance(exc, ContextWindowExceededError) or isinstance(self, JSONAdapter) or not self.use_json_adapter_fallback:
+                raise
+            return await JSONAdapter().acall(lm, lm_kwargs, signature, demos, inputs)
 
     def format_field_description(self, signature: type[Signature]) -> str:
         return (
