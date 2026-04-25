@@ -1,6 +1,8 @@
 # Upstream Compatibility Audit Report
 ## dspy-slim vs stanfordnlp/dspy 3.1.3 (commit 4ef729d2)
 
+This report is preserved as the historical `3.1.3` baseline audit. For the current stable compatibility state after the upstream `3.2.0` sync, use [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md).
+
 **Audit Date:** 2026-04-15  
 **Upstream Reference:** ../tmp/dspy (pinned to 3.1.3)  
 **Local Reference:** dspy-slim as of 2026-04-15  
@@ -356,4 +358,3 @@ None. All Tier 1 surfaces are behaviorally compatible.
 - All support-surface work (usage tracking, streaming, save/load) is compatible.
 
 **Zero blocking drifts. Three Tier 3 gaps that can be added incrementally without affecting maintained contracts.**
-

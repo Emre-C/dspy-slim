@@ -10,7 +10,7 @@ from dspy.signatures import (
     infer_prefix,
     make_signature,
 )
-from dspy.teleprompt import GEPA, bootstrap_trace_data
+from dspy.teleprompt import BetterTogether, GEPA, bootstrap_trace_data
 
 from dspy.adapters import Adapter, ChatAdapter, JSONAdapter, Tool, ToolCalls
 from dspy.clients import BaseLM, DSPY_CACHE, LM
@@ -33,6 +33,7 @@ cache = DSPY_CACHE
 __all__ = [
     "BaseLM",
     "BaseModule",
+    "BetterTogether",
     "ChainOfThought",
     "ChatAdapter",
     "GEPA",

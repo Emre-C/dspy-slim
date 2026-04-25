@@ -176,8 +176,9 @@ class SignatureMeta(type(BaseModel)):
         namespace["__annotations__"] = ordered_annotations
 
         # On Python 3.14+, prevent Pydantic from capturing this frame's locals via
-        # the parent namespace reset path. Those locals can contain unpicklable
-        # references that break cloudpickle round-trips for Signature subclasses.
+        # the parent namespace reset path. Those locals can include unpicklable
+        # annotation-closure references that break cloudpickle round-trips for
+        # Signature subclasses. This is safe because DSPy resolves annotations above.
         if sys.version_info >= (3, 14):
             kwargs["__pydantic_reset_parent_namespace__"] = False
 

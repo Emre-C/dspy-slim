@@ -10,6 +10,7 @@ from gepa.proposer.reflective_mutation.base import ReflectionComponentSelector
 
 from dspy.clients.base_lm import BaseLM
 from dspy.primitives import Example, Module, Prediction
+from dspy.teleprompt.teleprompt import Teleprompter
 from dspy.teleprompt.gepa.gepa_utils import DspyAdapter, DSPyTrace, PredictorFeedbackFn, ScoreWithFeedback
 from dspy.utils.annotation import experimental
 
@@ -146,7 +147,7 @@ class DspyGEPAResult:
 
 
 @experimental(version="3.0.0")
-class GEPA:
+class GEPA(Teleprompter):
     """
     GEPA is an evolutionary optimizer, which uses reflection to evolve text components
     of complex systems. GEPA is proposed in the paper [GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning](https://arxiv.org/abs/2507.19457).

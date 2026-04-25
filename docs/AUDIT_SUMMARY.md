@@ -1,5 +1,7 @@
 # Upstream Compatibility Audit: Executive Summary
 
+This summary is a historical snapshot of the 2026-04-15 audit against upstream DSPy `3.1.3`. For the current stable compatibility state after the upstream `3.2.0` sync, use [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md).
+
 **Conducted:** 2026-04-15  
 **Scope:** dspy-slim vs stanfordnlp/dspy 3.1.3 (pinned ../tmp/dspy)  
 **Kept Surfaces:** Predict, ChainOfThought, ReAct, RLM, GEPA, Adapters, Module, Settings, LM, BaseLM
@@ -122,4 +124,3 @@ All findings verified by:
 - **AUDIT_SUMMARY.md** — This file
 
 All live under `docs/` in this repository.
-

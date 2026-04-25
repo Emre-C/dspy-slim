@@ -1,6 +1,6 @@
 # Compatibility remediation plan (archival)
 
-**Audit:** 2026-04-15 vs upstream DSPy 3.1.3 (see [`AUDIT_METHODOLOGY.md`](AUDIT_METHODOLOGY.md)).
+**Audit:** historical 2026-04-15 pass vs upstream DSPy 3.1.3 (see [`AUDIT_METHODOLOGY.md`](AUDIT_METHODOLOGY.md)). The current stable compatibility anchor after the upstream `3.2.0` sync lives in [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md).
 
 ## Current status
 

@@ -1,6 +1,8 @@
-# Compatibility audit index (2026-04-15)
+# Compatibility audit index (historical 2026-04-15 baseline)
 
-**Scope:** dspy-slim vs upstream DSPy **3.1.3** (pinned mirror under `../tmp/dspy` at audit time).
+**Scope:** historical dspy-slim vs upstream DSPy **3.1.3** (pinned mirror under `../tmp/dspy` at audit time).
+
+**Current status note:** This bundle preserves the pre-`3.2.0` audit baseline. For the current stable compatibility state after the upstream `3.2.0` sync, use [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md).
 
 **Verdict:** No **blocking** Tier-1 contract gaps on the kept surface; remaining differences are intentional slimming, documented divergences (e.g. LM metadata / RLM), or support utilities — see [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md) for the **current** checklist.
 

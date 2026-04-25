@@ -63,5 +63,5 @@ Official PyPI package name `dspy` is reserved for upstream. If you publish this 
 
 ## Last synced (edit when you merge upstream)
 
-- Upstream ref (optional): `main @ ____________`
-- Notes: ____________
+- Upstream ref (optional): `3.2.0 @ d3a890c0`
+- Notes: merged upstream `3.2.0` while preserving the slim OpenAI-compatible LM path and the reduced teleprompt surface (`GEPA` + explicit-optimizer `BetterTogether`)

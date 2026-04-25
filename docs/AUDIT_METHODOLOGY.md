@@ -1,5 +1,7 @@
 # Compatibility Audit Methodology
 
+This methodology note documents the historical 2026-04-15 audit against upstream DSPy `3.1.3`. The current stable compatibility anchor is tracked separately in [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md).
+
 **Audit Date:** 2026-04-15  
 **Auditor:** Parallel sub-agent comparison (8 independent agents)  
 **Upstream Reference:** stanfordnlp/dspy 3.1.3 @ commit 4ef729d2  
@@ -221,4 +223,3 @@ Eight agents ran in parallel, each responsible for one surface:
 8. **Agent H:** Adapters & Clients module inits → 2 findings (type exports, LiteLLM config)
 
 Total findings: 17 ➜ After deduplication & categorization: 8 gaps identified, all non-blocking.
-

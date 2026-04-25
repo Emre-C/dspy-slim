@@ -25,6 +25,7 @@ The `dspy` name on PyPI belongs to upstream. This fork installs as `import dspy`
 | `dspy.Parallel` | Concurrent execution of predictors |
 | `dspy.RLM` | Recursive Language Model scaffold — code execution, sub-LM calls, symbolic recursion (see `rlm.md`) |
 | `dspy.GEPA` | Prompt optimization via the [GEPA](https://arxiv.org/abs/2507.19457) reflective evolution algorithm |
+| `dspy.BetterTogether` | Strategy-driven meta-optimizer for sequencing kept optimizers like `GEPA` |
 | `dspy.LM` | Language model client — OpenAI-compatible APIs only (chat + Responses), OpenRouter via the same path |
 
 Support utilities (`dspy.Evaluate`, `dspy.JSONAdapter`, `dspy.bootstrap_trace_data`) remain for implementation needs but are not product pillars.
@@ -41,6 +42,7 @@ Support utilities (`dspy.Evaluate`, `dspy.JSONAdapter`, `dspy.bootstrap_trace_da
 
 - **`dspy.LM` does not depend on LiteLLM.** The LM transport is a direct OpenAI-compatible client; OpenRouter is supported through its OpenAI-compatible API. Only chat-style and Responses-style APIs — no legacy text-completion mode.
 - **GEPA is a package dependency, not vendored.** Integration uses the published `gepa[dspy]==0.1.1` package. The DSPy wrapper tracks the stable pinned engine surface, not unreleased upstream kwargs. Local adapter hardening (skip predictors with no reflective examples, empty proposals instead of crashes, fallback to module-level scoring on mismatch) is preserved across syncs.
+- **`BetterTogether` is kept, but in slim-compatible form.** The fork restores the upstream 3.2 strategy-driven meta-optimizer so users can sequence explicit optimizers like `GEPA`, while intentionally not reintroducing the removed default optimizer stack (`MIPROv2`, random search defaults, LiteLLM-backed provider assumptions, or fine-tuning infrastructure) just to satisfy upstream imports.
 - **`dspy.Tool` remains available at the top level for upstream compatibility.** Internal imports should still prefer concrete owning modules such as `dspy.adapters.types`. Tool schemas depend on `pydantic` and `jsonschema` (both explicit dependencies).
 - **Tool compatibility stays OpenAI-schema-first.** `format_as_litellm_function_call()` and `ToolCall.execute()` remain available for upstream compatibility, but MCP and LangChain conversion helpers stay intentionally unsupported because those integrations are removed from the fork.
 - **`RLM` keeps the upstream tool-facing entry point.** Pass plain callables or top-level `dspy.Tool` objects via `tools=[...]`; internal imports should still prefer the concrete owning type.

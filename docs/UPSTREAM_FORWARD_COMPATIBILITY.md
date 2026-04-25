@@ -10,7 +10,7 @@ It complements:
 
 ## Why This Exists
 
-`dspy-slim` now has a completed behavioral-compatibility audit against upstream DSPy `3.1.3`.
+`dspy-slim` now has a completed behavioral-compatibility audit against upstream DSPy `3.2.0`.
 
 That stable audit answers one question:
 
@@ -33,7 +33,7 @@ Use the latest audited upstream stable release as the reference when the repo is
 - the compatibility matrix and regression slice
 - whether a local difference is a drift from the supported stable contract
 
-For the current audit cycle, that anchor is upstream DSPy `3.1.3` at `4ef729d2`.
+For the current audit cycle, that anchor is upstream DSPy `3.2.0` at `d3a890c0`.
 
 ### Forward-Compatibility Mode
 
@@ -62,7 +62,7 @@ Review upstream changes under:
 - `dspy/primitives/` except the `RLM`-specific divergence lane below
 - `dspy/signatures/`
 - `dspy/streaming/`
-- `dspy/teleprompt/gepa/`
+- `dspy/teleprompt/` for the kept `GEPA` and `BetterTogether` surfaces
 - `dspy/utils/`
 - `pyproject.toml`
 
@@ -120,8 +120,8 @@ Example command shape using the existing upstream mirror in `../tmp/dspy`:
 
 ```bash
 git -C ../tmp/dspy fetch origin main --tags
-git -C ../tmp/dspy rev-list -n 1 --before='2026-04-16 00:00' origin/main
-git -C ../tmp/dspy log --oneline 3.1.3..a2b01f34 -- \
+git -C ../tmp/dspy rev-list -n 1 --before='2026-04-24 00:00' origin/main
+git -C ../tmp/dspy log --oneline 3.2.0..origin/main -- \
   dspy/__init__.py \
   dspy/adapters \
   dspy/clients \
@@ -130,10 +130,10 @@ git -C ../tmp/dspy log --oneline 3.1.3..a2b01f34 -- \
   dspy/primitives \
   dspy/signatures \
   dspy/streaming \
-  dspy/teleprompt/gepa \
+  dspy/teleprompt \
   dspy/utils \
   pyproject.toml
-git -C ../tmp/dspy diff --stat 3.1.3..a2b01f34 -- \
+git -C ../tmp/dspy diff --stat 3.2.0..origin/main -- \
   dspy/__init__.py \
   dspy/adapters \
   dspy/clients \
@@ -142,50 +142,27 @@ git -C ../tmp/dspy diff --stat 3.1.3..a2b01f34 -- \
   dspy/primitives \
   dspy/signatures \
   dspy/streaming \
-  dspy/teleprompt/gepa \
+  dspy/teleprompt \
   dspy/utils \
   pyproject.toml
 ```
 
-## First Forward-Compatibility Pass
+## Current Baseline
 
-### Window
+- Stable anchor: upstream DSPy `3.2.0` at `d3a890c0`
+- Purpose: measure how noisy the next upstream sync is likely to be on the kept surface without changing the current stable compatibility claim
+- Historical note: the earlier `3.1.3`-anchored forward-compatibility pass is now superseded by the `3.2.0` stable sync and should not be used as the current mergeability baseline
 
-- Stable anchor: upstream DSPy `3.1.3` at `4ef729d2`
-- Cutoff commit for this pass: upstream `main` at `a2b01f34` on 2026-04-15
-- Purpose: test forward mergeability on kept surfaces without changing the repo's current stable compatibility claim
+## What To Record In Each New Pass
 
-### Already Absorbed Or Effectively Covered
+For each forward-compatibility run after `3.2.0`, classify relevant upstream commits as one of:
 
-| Upstream commit(s) | Surface | Local assessment | Why it matters |
-|---|---|---|---|
-| `fed54d0a` | `JSONAdapter.acall` forwarding `use_native_function_calling` | Already present locally. | Confirms async adapter behavior remains upstream-shaped on a subtle but real correctness boundary. |
-| `b833bc55` | `AdapterParseError` on empty LM responses | Already present locally. | Avoids silent `None`-shaped predictions when the LM returns empty content. |
-| `af2a955f` | `Predict.load_state()` / `BaseModule.load()` unsafe LM state keys | Now present locally. | Restores the upstream hardening boundary that strips serialized endpoint overrides unless the caller explicitly opts into trusted unsafe LM state. |
-| `7e02cc8e` | `InputField` / `OutputField` deprecation warnings for `prefix`, `format`, and `parser` | Already present locally. | Keeps warning behavior on supported signature-authoring surfaces aligned with current upstream. |
-| `3278e0f8` | Duplicate input/output field-name rejection in `Signature` | Already present locally. | Preserves an upstream validation boundary that catches ambiguous signatures early. |
-| `35613ab5` | Guarded subclass checks for generic annotations in adapter utils | Already present locally. | Avoids runtime crashes when tool or field annotations use generics such as `list[str]`. |
-| `c3424073` | `ParallelExecutor` runs on the main thread when `num_threads=1` | Already present locally. | Keeps `Evaluate` and related execution paths compatible with single-thread callers that require main-thread execution. |
-| `a3874e34` | JSON serialization uses `ensure_ascii=False` | Already present locally. | Maintains correct non-ASCII handling for JSONAdapter and related JSON utilities. |
-| `fcb648de` | `Signature` cloudpickle serialization on Python 3.14 | Now present locally. | Keeps `Signature` and `Predict` cloudpickle round-trips working after the fork reintroduced cloudpickle-backed save/load helpers. |
-| `71493dba`, `9cdb0aac` | Input type validation, `settings.warn_on_type_mismatch`, and the matching `typeguard==4.4.3` pin | Now present locally as an intentional forward-compatibility adoption beyond the original `3.1.3` stable audit. | Aligns the kept `Predict` input-warning boundary with current upstream `main` while keeping the stable compatibility matrix separate as a historical audit artifact. |
-| `c8b3ebed`, `0d390ad2`, `d0b89320`, `94062912` | `BaseLM` capability properties and DSPy-owned `ContextWindowExceededError` | Already present locally. | This is one of the strongest mergeability signals: adapters and error handling remained easy to align without reintroducing LiteLLM coupling. |
+- already absorbed locally
+- next merge candidate
+- intentional skip because the change only touches removed subsystems
+- separate `RLM` divergence follow-up
 
-### Next Merge Candidates
-
-| Upstream commit(s) | Surface | Current local status | Recommended action | Priority |
-|---|---|---|---|---|
-| `16255432` | `Image` type `verify=` support | Not currently prioritized. This is additive and low-signal for the main slimness question. | Revisit only if image transport becomes an active kept-surface concern. | P3 |
-
-### Intentional Skip Or Separate Lane
-
-| Upstream commit(s) | Surface | Local decision | Why |
-|---|---|---|---|
-| `30ebe34f`, `66e33399` | LiteLLM import-time and version-cap handling | Skip. | `dspy-slim` removed LiteLLM, so these are not meaningful mergeability signals for the kept surface. |
-| `3dde431b` | `SemanticF1` / `CompleteAndGrounded` return `Prediction` | Skip for now. | These metrics are outside the fork's current supported product pillars and are not required to judge core kept-surface slimness. |
-| `d8fae34b`, `1ff12dd0`, `3109c61f`, `a8041dae`, `295e2b35` | `RLM` / interpreter / REPL hardening | Separate `RLM` divergence lane. | Useful work, but it should be reviewed after the core kept-surface lane because this repo already carries intentional `RLM` divergence. |
-| `43bf2c59` | Optuna optional dependency | Skip. | Optuna stays out of scope for the fork. |
-| `b3ee96fa` | GEPA package bump to upstream repo state | Skip as a default merge candidate. | This fork intentionally audits GEPA against the published stable package surface, not arbitrary upstream repo drift. |
+Record only the kept-surface deltas that would materially affect the next sync. Do not restate the whole stable audit here.
 
 ## Recommended Cadence
 

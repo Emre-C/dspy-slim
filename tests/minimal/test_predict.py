@@ -81,11 +81,11 @@ def test_supported_top_level_compatibility_exports_are_available():
     assert dspy.track_usage is not None
 
 
-def test_chain_of_thought_keeps_upstream_reasoning_prefix():
+def test_chain_of_thought_matches_upstream_without_reasoning_prefix():
     chain = ChainOfThought("question -> answer")
     reasoning = chain.predict.signature.output_fields["reasoning"]
 
-    assert reasoning.json_schema_extra["prefix"] == "Reasoning: Let's think step by step in order to"
+    assert reasoning.json_schema_extra["prefix"] == "Reasoning:"
 
 
 def test_predict_warns_for_extra_fields_and_ignores_them(capfd):

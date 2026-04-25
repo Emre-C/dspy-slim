@@ -14,6 +14,8 @@ It complements:
 
 `dspy-slim` should behave like upstream DSPy on the user-visible surfaces that this fork chooses to keep.
 
+Current stable anchor: upstream DSPy `3.2.0` (`d3a890c0`). The living per-surface status for that anchor is tracked in [`UPSTREAM_COMPATIBILITY_MATRIX.md`](UPSTREAM_COMPATIBILITY_MATRIX.md).
+
 The repo may still be slimmer by:
 
 - removing unsupported upstream subsystems entirely
@@ -27,7 +29,7 @@ The repo should not silently become a sibling framework with different default s
 
 ### Supported Surface
 
-The subset of DSPy that this fork intends users to rely on. Today that includes the public symbols and flows described in [`README.md`](../README.md), especially `Predict`, adapters used by kept modules, `ReAct`, `RLM`, `GEPA`, `LM`, and the tooling/types those paths expose.
+The subset of DSPy that this fork intends users to rely on. Today that includes the public symbols and flows described in [`README.md`](../README.md), especially `Predict`, adapters used by kept modules, `ChainOfThought`, `ReAct`, `Parallel`, `RLM`, `GEPA`, `BetterTogether`, `LM`, `BaseLM`, and the tooling/types those paths expose.
 
 ### Behavioral Compatibility
 
@@ -77,6 +79,7 @@ These surfaces should be audited first and kept closest to upstream.
 - Top-level exports and import paths for supported symbols
 - Adapter defaults and fallback policy
 - `Predict` orchestration semantics
+- `BetterTogether` and `GEPA` compile surfaces on the kept teleprompt path
 - `RLM` tool-facing behavior and core control flow
 - Direct LM output shape and metadata flow when user-visible
 
@@ -124,6 +127,7 @@ The initial slice should cover:
 - top-level import/export parity for supported symbols such as `dspy.Tool`
 - default adapter selection in `Predict`
 - adapter fallback behavior and LM call-count semantics
+- one `BetterTogether` smoke test that exercises the explicit-optimizer `3.2.0` contract
 - one `RLM` smoke test covering tool-facing or orchestration behavior that should remain upstream-faithful
 - direct `lm()` output shape only if that shape is treated as part of the supported surface
 
@@ -199,7 +203,7 @@ Maintain the post-release `main` triage in [`UPSTREAM_FORWARD_COMPATIBILITY.md`]
 2. Add compatibility tests for top-level exports and adapter defaults.
 3. Resolve top-level `dspy.Tool` parity for the supported surface.
 4. Resolve default adapter and fallback-policy parity between `Predict` and `ChatAdapter`.
-5. Re-audit `RLM` against upstream after the adapter and export surfaces are stable.
+5. Re-audit `RLM` against upstream after the adapter, teleprompt, and export surfaces are stable.
 6. Update README statements that currently describe drift as if it were settled fork policy.
 
 ## Non-Goals

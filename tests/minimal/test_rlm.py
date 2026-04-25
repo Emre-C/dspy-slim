@@ -83,6 +83,8 @@ def multiply_tool(a: int = 0, b: int = 0) -> str:
 
 
 def _load_shared_rlm_replay_cases() -> list[dict]:
+    if not _RLM_REPLAY_FIXTURE_PATH.exists():
+        return []
     return json.loads(_RLM_REPLAY_FIXTURE_PATH.read_text())["cases"]
 
 
@@ -937,6 +939,7 @@ class TestRLMBudgetManagement:
 class TestSharedRLMReplayFixtures:
     """Replay shared RLM scenarios through the Python port."""
 
+    @pytest.mark.skipif(not _RLM_REPLAY_FIXTURE_PATH.exists(), reason="shared RLM replay fixture missing")
     @pytest.mark.parametrize("case", _load_shared_rlm_replay_cases(), ids=lambda case: str(case["id"]))
     def test_shared_fixture(self, case):
         import dspy
